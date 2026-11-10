@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bike Race</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f16; color: #e8eef5; font-family: system-ui, Segoe UI, sans-serif; user-select: none; }
+  canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #hud.on { display: block; }
+  #speed { position: absolute; right: 28px; bottom: 24px; text-align: right; text-shadow: 0 2px 8px #000; }
+  #speed b { font-size: 64px; font-weight: 800; letter-spacing: -.02em; } #speed small { font-size: 16px; color: #aab7c8; margin-left: 4px; }
+  #boostbar { width: 180px; height: 6px; background: rgba(255,255,255,.15); border-radius: 3px; margin: 4px 0 0 auto; overflow: hidden; } #boostfill { height: 100%; width: 100%; background: #4cc2ff; }
+  #race { position: absolute; left: 24px; top: 20px; text-shadow: 0 2px 8px #000; font-size: 15px; line-height: 1.5; }
+  #race b { font-size: 26px; }
+  #heat { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font-size: 28px; letter-spacing: .15em; text-shadow: 0 2px 8px #000; text-align: center; }
+  #heat small { display: block; font-size: 12px; letter-spacing: .12em; color: #ff8a8a; text-transform: uppercase; }
+  #toast { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font: 800 34px system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; }
+  #toast.on { opacity: 1; }
+  #mini { position: absolute; right: 20px; top: 20px; width: 190px; height: 190px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); background: rgba(10,14,20,.7); }
+  #hint { position: absolute; left: 24px; bottom: 20px; font-size: 12px; color: #9aa9bd; text-shadow: 0 1px 4px #000; line-height: 1.5; }
+  #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle, transparent 40%, rgba(255,0,0,.55)); transition: opacity .2s; } 
+  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(14,22,36,.82), rgba(5,8,14,.96)); z-index: 10; }
+  #menu.off { display: none; }
+  .card { width: min(560px, 92vw); background: rgba(18,26,40,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 26px 30px; box-shadow: 0 30px 100px rgba(0,0,0,.7); }
+  .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: -.01em; } .card h1 span { color: #ffd24a; }
+  .card p.sub { margin: 0 0 18px; color: #9aa9bd; font-size: 14px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 14px; }
+  .seg { display: flex; gap: 6px; } .seg button { background: #1d2a3f; color: #cfd9e6; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 13px; font: inherit; cursor: pointer; }
+  .seg button.on { background: #ffd24a; color: #111; border-color: #ffd24a; font-weight: 700; }
+  #go { width: 100%; margin-top: 18px; padding: 13px; font: 800 18px system-ui; border: 0; border-radius: 10px; background: #3ddc84; color: #06210f; cursor: pointer; } #go:hover { filter: brightness(1.08); }
+  .keys { margin-top: 14px; font-size: 12px; color: #8696ab; line-height: 1.6; }
+  #best { font-size: 12px; color: #8fb0d0; margin-top: 6px; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud">
+  <div id="race"></div>
+  <div id="heat"></div>
+  <div id="toast"></div>
+  <canvas id="mini" width="380" height="380"></canvas>
+  <div id="speed"><b id="spd">0</b><small>km/h</small><div id="boostbar"><div id="boostfill"></div></div></div>
+  <div id="hint">W / Up gas &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake &nbsp; Shift boost &nbsp; R reset &nbsp; Esc menu</div>
+  <div id="flash"></div>
+</div>
+<div id="menu"><div class="card">
+  <h1>Bike <span>Race</span></h1>
+  <p class="sub">Race through a busy city. Dodge traffic and people, and stay out of the police's way.</p>
+  <div class="row"><span>Mode</span><div class="seg" data-k="mode"><button data-v="race" class="on">Race</button><button data-v="free">Free ride</button></div></div>
+  <div class="row"><span>Police</span><div class="seg" data-k="police"><button data-v="1" class="on">On</button><button data-v="0">Off</button></div></div>
+  <div class="row"><span>Traffic and people</span><div class="seg" data-k="traffic"><button data-v="0">Empty</button><button data-v="1" class="on">Normal</button><button data-v="2">Busy</button></div></div>
+  <div class="row"><span>Laps (race)</span><div class="seg" data-k="laps"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div></div>
+  <div class="row"><span>Rival riders (race)</span><div class="seg" data-k="rivals"><button data-v="0">0</button><button data-v="3" class="on">3</button><button data-v="5">5</button></div></div>
+  <button id="go">Start</button>
+  <div id="best"></div>
+  <div class="keys">Multiplayer is planned next. Desktop keyboard only for now.</div>
+</div></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

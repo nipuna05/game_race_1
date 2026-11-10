@@ -50,6 +50,7 @@ addEventListener('keydown', (e) => {
   if (ui === 'play' && game && !e.repeat) {
     if (e.code === 'KeyQ') game.attack(game.player, 'punch', -1); else if (e.code === 'KeyE') game.attack(game.player, 'punch', 1); else if (e.code === 'KeyF') game.attack(game.player, 'kick');
   }
+  if (e.code === 'KeyH' && ui === 'play' && !e.repeat) showTips();
   if (e.code === 'Escape') { if (ui === 'play') setPause(true); else if (ui === 'pause') setPause(false); }
   if (e.code === 'KeyR' && ui === 'play' && game) game.resetPlayer();
 });
@@ -647,6 +648,12 @@ function enterHome() {
 }
 function setPause(on: boolean) { ui = on ? 'pause' : 'play'; showPause(on); ($('p-restart') as HTMLElement).style.display = game?.mp ? 'none' : ''; sound.engine(!on); sound.ui(on ? 'back' : 'click'); }
 
+/** The racing tips card: shown the first time someone races, and again on H. */
+let tipsTimer = 0;
+function showTips() {
+  const el = $('tips'); el.classList.add('on'); window.clearTimeout(tipsTimer); tipsTimer = window.setTimeout(() => el.classList.remove('on'), 14000);
+  try { localStorage.setItem('bikerace.tips.v1', '1'); } catch { /* ignore */ }
+}
 function startGame(mp: MpCfg | null = null) {
   game?.dispose();
   if (mp) opt.map = mp.settings.map;
@@ -657,6 +664,9 @@ function startGame(mp: MpCfg | null = null) {
   game = new Game(mp); (window as any).__game = game;
   ui = 'play'; showHome(false); showPause(false); $('hud').classList.add('on');
   sound.setBike(bikeDef().cc); sound.engine(true); sound.music('race');
+  $('tips').classList.remove('on'); window.clearTimeout(tipsTimer);
+  let seen = false; try { seen = !!localStorage.getItem('bikerace.tips.v1'); } catch { /* ignore */ }
+  if (!seen) showTips();
 }
 
 initMenu({

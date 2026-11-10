@@ -25,6 +25,7 @@ npm run build
 | Q / E | Punch with the left / right hand |
 | F | Kick |
 | R | Put the bike back on the road |
+| H | Show the racing tips |
 | Esc | Menu |
 
 ## Multiplayer

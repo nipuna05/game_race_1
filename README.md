@@ -38,6 +38,10 @@ On the home page, ONLINE: one player creates a room and shares the 4-letter code
 
 Each page simulates its own bike and the server relays the states, picks the start time and a shared seed, and keeps the room (`server/index.ts`, messages in `shared/protocol.ts`). On a home network the game page uses the same PC for the server, so friends just open the page address.
 
+## Steering
+
+Bikes turn sharper than before, the bars ease towards your keys (a quick tap turns a little), and leaning hard into a turn at speed scrubs some speed so junctions can be taken without braking first. SETTINGS has a Steering slider (60-160%) for people who find it too slow or too sharp.
+
 ## Bikes and maps
 
 - **10 bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Vespa 150cc, Mini Chopper 300cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.

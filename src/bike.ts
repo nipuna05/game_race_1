@@ -4,6 +4,9 @@ import { makeBikeMesh, type BikeMesh } from './bikemodel';
 
 export interface Input { throttle: number; steer: number; hand: boolean; boost: boolean }
 export const MAX_SPEED = 40, BOOST_SPEED = 56;
+/** How sharply bikes turn (a setting, 0.5 to 1.8 times). */
+export let STEER = 1;
+export const setSteer = (v: number) => { STEER = Math.max(0.5, Math.min(1.8, v)); };
 
 /** The bikes you can ride. Numbers are multipliers on the base feel; wheel / len / color change the look. */
 export interface BikeDef { id: string; category: string; cc: number; price: number; name: string; desc: string; top: number; accel: number; turn: number; brake: number; boost: number; wheel: number; len: number; color: number; fairing?: boolean; upright?: number; wide?: boolean }
@@ -24,7 +27,7 @@ export { makeBikeMesh, type BikeMesh };
 
 export class Bike {
   x = 0; z = 0; h = 0; speed = 0; lat = 0; boostLeft = 1; leanAngle = 0; boosting = false;
-  mesh: BikeMesh; crash = 0; steerAngle = 0;
+  mesh: BikeMesh; crash = 0; steerAngle = 0; steerSm = 0;
   skill = 1;
   // fighting and falling
   balance = 1; fall = 0; fallDir = 1; inv = 0; punchCd = 0; kickCd = 0; swingT = 0; swingKind: 'punch' | 'kick' = 'punch'; swingSide: 1 | -1 = 1;
@@ -53,8 +56,12 @@ export class Bike {
     if (inp.hand) this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), 20 * dt);
     this.speed = clamp(this.speed, -7, BOOST_SPEED + 4);
 
-    const agile = clamp(Math.abs(this.speed) / 6, 0, 1), turnRate = (2.5 - clamp(Math.abs(this.speed) / 45, 0, 1) * 1.55) * (inp.hand ? 1.5 : 1) * d.turn;
-    this.h -= inp.steer * turnRate * agile * (this.speed < 0 ? -1 : 1) * dt;
+    // steering: the keys are on/off, so the bars ease towards the input (a quick tap turns a little, holding turns fully)
+    this.steerSm += (inp.steer - this.steerSm) * Math.min(1, dt * 14);
+    const agile = clamp(Math.abs(this.speed) / 6, 0, 1), turnRate = (2.9 - clamp(Math.abs(this.speed) / 55, 0, 1) * 1.5) * (inp.hand ? 1.5 : 1) * Math.max(0.85, d.turn) * STEER;
+    this.h -= this.steerSm * turnRate * agile * (this.speed < 0 ? -1 : 1) * dt;
+    // corner assist: leaning hard into a turn at speed scrubs some speed, so a junction can be taken without braking first
+    if (Math.abs(this.steerSm) > 0.4 && this.speed > 22 && this.fall <= 0) this.speed -= (this.speed - 22) * 0.7 * Math.abs(this.steerSm) * dt;
     const f = this.fwd, sx = -Math.cos(this.h), sz = Math.sin(this.h);
     if (inp.hand) this.lat += inp.steer * Math.abs(this.speed) * 0.9 * dt;
     if (GRIP < 1) this.lat -= inp.steer * Math.abs(this.speed) * (1 - GRIP) * 1.5 * dt;   // slippery road: the bike slides out of corners

@@ -1,5 +1,5 @@
 import { MAPS, clamp, type MapDef } from './city';
-import { BIKES, type BikeDef } from './bike';
+import { BIKES, setSteer, type BikeDef } from './bike';
 import type { Sound } from './audio';
 import { net, defaultServer } from './net';
 import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike } from './profile';
@@ -9,11 +9,12 @@ const QS = new URLSearchParams(location.search);
 const OPT_KEY = 'bikerace.opts.v1';
 
 /** The player's choices. Saved in the browser; the query string can override them for quick tests (?map=neon&bike=hyper&police=0). */
-export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
+export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3', steer: '100' };
 try { Object.assign(opt, JSON.parse(localStorage.getItem(OPT_KEY) || '{}')); } catch { /* defaults */ }
 for (const k of Object.keys(opt)) if (QS.has(k)) opt[k] = QS.get(k)!;
 const save = () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(opt)); } catch { /* ignore */ } };
 
+setSteer((Number(opt.steer) || 100) / 100);
 export const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
 if (!owns(opt.bike)) opt.bike = 'street';
 export const bikeDef = (): BikeDef => BIKES.find((x) => x.id === opt.bike) ?? BIKES[0];
@@ -151,7 +152,7 @@ function render() {
       <h3>Tips</h3><div class="desc">Hit riders beside you, or come up fast behind one, to knock them off. Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over orange arrow pads for speed. Hitting people or crashing makes the police chase you.</div>`;
   } else {
     const v = sound.vol, sl = (k: 'master' | 'music' | 'sfx', n: string) => `<div class="slider"><span>${n}</span><input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-vol="${k}"><span id="v-${k}">${Math.round(v[k] * 100)}%</span></div>`;
-    h = `<h2>Settings</h2>${sl('master', 'Master')}${sl('music', 'Music')}${sl('sfx', 'Effects')}<div class="desc">Music changes between the menu and the race. Effects include the engine, which sounds different for each bike.</div>`;
+    h = `<h2>Settings</h2>${sl('master', 'Master')}${sl('music', 'Music')}${sl('sfx', 'Effects')}<div class="slider"><span>Steering</span><input type="range" min="60" max="160" step="5" value="${Number(opt.steer) || 100}" data-steer><span id="v-steer">${Number(opt.steer) || 100}%</span></div><div class="desc">Steering: higher makes the bike turn sharper. Tip: let go of the gas a little before a corner, and use Space to drift round tight ones. Music changes between the menu and the race. Effects include the engine, which sounds different for each bike.</div>`;
   }
   clone.innerHTML = h; p.replaceWith(clone); clone.id = 'panel'; bind(clone);
 }
@@ -168,6 +169,7 @@ function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLElement>('[data-color]').forEach((c) => c.addEventListener('click', () => { opt.color = c.dataset.color!; save(); syncMe(); render(); hooks.preview(); }));
   p.querySelectorAll<HTMLElement>('[data-map]').forEach((c) => c.addEventListener('click', () => { opt.map = c.dataset.map!; save(); render(); hooks.mapChanged(); }));
   p.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((r) => r.addEventListener('input', () => { const k = r.dataset.vol as 'master' | 'music' | 'sfx'; sound.setVol(k, Number(r.value) / 100); $('v-' + k).textContent = `${r.value}%`; }));
+  p.querySelectorAll<HTMLInputElement>('[data-steer]').forEach((r) => r.addEventListener('input', () => { opt.steer = r.value; save(); setSteer(Number(r.value) / 100); $('v-steer').textContent = `${r.value}%`; }));
   p.querySelectorAll<HTMLInputElement>('[data-vol="sfx"]').forEach((r) => r.addEventListener('change', () => sound.thump(6)));
   $('go')?.addEventListener('click', () => hooks.start());
   const connectThen = (act: () => void) => { const u = (p.querySelector<HTMLInputElement>('#srv')?.value || defaultServer()).trim(); net.connect(u).then(act).catch(() => { /* the error is shown in the panel */ }); };

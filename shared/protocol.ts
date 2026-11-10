@@ -1,11 +1,11 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const MAX_PLAYERS = 12;
 export const BIKE_IDS = ['scooter', 'vespa', 'chopper', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
 
 export interface PlayerInfo { id: number; name: string; bike: string; color: string }
-export interface Settings { map: string; laps: number }
+export interface Settings { map: string; laps: number; police: boolean; traffic: number }   // traffic: 0 empty, 1 normal, 2 busy
 /** One open room in the list. */
 export interface RoomInfo { code: string; host: string; players: number; map: string; laps: number }
 
@@ -24,7 +24,7 @@ export type C2S =
   | { t: 'create'; ver: number; name: string; bike: string; color: string; pub?: boolean }
   | { t: 'join'; ver: number; code: string; name: string; bike: string; color: string }
   | { t: 'me'; name: string; bike: string; color: string }
-  | { t: 'settings'; map: string; laps: number; pub?: boolean }
+  | { t: 'settings'; map: string; laps: number; pub?: boolean; police?: boolean; traffic?: number }
   | { t: 'list' }
   | { t: 'chat'; text: string }
   | { t: 'start' }

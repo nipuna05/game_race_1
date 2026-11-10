@@ -111,7 +111,7 @@ function render() {
         <label class="chk"><input type="checkbox" id="pubchk" ${opt.pub === '0' ? '' : 'checked'} /> Public: list my room for everyone</label>
         ${net.error ? `<div class="err">${net.error}</div>` : ''}
         <h3>Server</h3><input id="srv" class="txt" value="${net.url || defaultServer()}" spellcheck="false" />
-        <div class="foot" style="margin-top:10px">Your bike, colour and name from the Garage and Profile are used. Police and traffic are off online for now.</div>`;
+        <div class="foot" style="margin-top:10px">Your bike, colour and name from the Garage and Profile are used. The host chooses police and traffic; each player sees their own cars and the police chase only you.</div>`;
     } else {
       const host = net.isHost, st = L.settings;
       h = `<h2>Room <span class="code">${L.code}</span></h2>
@@ -120,9 +120,11 @@ function render() {
         ${host ? `<h3>Race settings</h3>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
           <div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+          <div class="row"><span>Police</span><div class="seg" id="mppol"><button data-v="1" class="${st.police ? 'on' : ''}">On</button><button data-v="0" class="${st.police ? '' : 'on'}">Off</button></div></div>
+          <div class="row"><span>Traffic and people</span><div class="seg" id="mptraf">${[['0', 'Empty'], ['1', 'Normal'], ['2', 'Busy']].map(([v, nm]) => `<button data-v="${v}" class="${st.traffic === Number(v) ? 'on' : ''}">${nm}</button>`).join('')}</div></div>
           <div class="row"><span>Room</span><div class="seg" id="mppub"><button data-v="1" class="${L.pub ? 'on' : ''}">Public</button><button data-v="0" class="${L.pub ? '' : 'on'}">Private</button></div></div>
           <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START RACE</button>`
-        : `<h3>Race settings</h3><div class="desc">${MAPS.find((x) => x.id === st.map)?.name ?? st.map} &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}<br>Waiting for the host to start...</div>`}
+        : `<h3>Race settings</h3><div class="desc">${MAPS.find((x) => x.id === st.map)?.name ?? st.map} &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''} &middot; Police ${st.police ? 'on' : 'off'} &middot; Traffic ${['empty', 'normal', 'busy'][st.traffic] ?? 'normal'}<br>Waiting for the host to start...</div>`}
         <h3>Chat</h3><div class="chat" id="chatlog">${net.chatLog.map((c) => `<div><b>${clean(c.name)}</b> ${clean(c.text)}</div>`).join('')}</div>
         <input id="chatin" class="txt" maxlength="120" placeholder="Type a message and press Enter" spellcheck="false" style="margin-top:6px" />
         <button class="danger" id="mpleave">Leave room</button>${net.error ? `<div class="err">${net.error}</div>` : ''}`;
@@ -189,6 +191,8 @@ function bind(p: HTMLElement) {
   p.querySelector('#createbtn')?.addEventListener('click', () => { const pub = p.querySelector<HTMLInputElement>('#pubchk')?.checked !== false; opt.pub = pub ? '1' : '0'; save(); connectThen(() => net.create(profile.name, opt.bike, opt.color, pub)); });
   p.querySelectorAll<HTMLElement>('[data-room]').forEach((b) => b.addEventListener('click', () => connectThen(() => net.join(b.dataset.room!, profile.name, opt.bike, opt.color))));
   p.querySelector('#refresh')?.addEventListener('click', () => { net.ensure(net.url || defaultServer()).then(() => net.list()).catch(() => { /* shown in the panel */ }); });
+  p.querySelector('#mppol')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, net.lobby.settings.laps, undefined, b.dataset.v === '1'); });
+  p.querySelector('#mptraf')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, net.lobby.settings.laps, undefined, undefined, Number(b.dataset.v)); });
   p.querySelector('#mppub')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, net.lobby.settings.laps, b.dataset.v === '1'); });
   const doJoin = () => { const code = (p.querySelector<HTMLInputElement>('#code')?.value || '').trim(); if (code.length === 4) connectThen(() => net.join(code, profile.name, opt.bike, opt.color)); };
   p.querySelector('#joinbtn')?.addEventListener('click', doJoin);

@@ -63,7 +63,7 @@ export const net = {
   create(name: string, bike: string, color: string, pub = true) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color, pub }); },
   join(code: string, name: string, bike: string, color: string) { this.send({ t: 'join', ver: PROTOCOL_VERSION, code, name, bike, color }); },
   me(name: string, bike: string, color: string) { if (this.lobby) this.send({ t: 'me', name, bike, color }); },
-  settings(map: string, laps: number, pub?: boolean) { this.send({ t: 'settings', map, laps, pub }); },
+  settings(map: string, laps: number, pub?: boolean, police?: boolean, traffic?: number) { this.send({ t: 'settings', map, laps, pub, police, traffic }); },
   start() { this.send({ t: 'start' }); },
   state(s: RiderState) { this.send({ t: 's', ...s }); },
   hit(to: number, mag: number, shove: number, how: 'punch' | 'kick' | 'rear') { this.send({ t: 'hit', to, mag, shove, how }); },

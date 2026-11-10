@@ -72,7 +72,7 @@ wss.on('connection', (ws, req) => {
       let r: Room | undefined;
       if (m.t === 'create') {
         if (rooms.size >= MAX_ROOMS) { send(ws, { t: 'err', msg: 'The server is full. Try again later.' }); return; }
-        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2 }, seed: 1, finTimer: null }; rooms.set(r.code, r);
+        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2, police: true, traffic: 1 }, seed: 1, finTimer: null }; rooms.set(r.code, r);
       } else {
         r = rooms.get(String(m.code).toUpperCase().trim());
         if (!r) { send(ws, { t: 'err', msg: 'No room with that code.' }); return; }
@@ -91,7 +91,8 @@ wss.on('connection', (ws, req) => {
     const { room: r, me } = w;
 
     if (m.t === 'me') { if (r.status !== 'lobby') return; me.name = clean(m.name); me.bike = cleanBike(m.bike); me.color = cleanColor(m.color); snapshot(r); }
-    else if (m.t === 'settings') { if (r.host !== me.id || r.status !== 'lobby') return; r.settings = { map: MAP_IDS.includes(m.map) ? m.map : 'downtown', laps: Math.max(1, Math.min(3, Math.round(num(m.laps, 9)) || 2)) }; if (typeof m.pub === 'boolean') r.pub = m.pub; snapshot(r); }
+    else if (m.t === 'settings') { if (r.host !== me.id || r.status !== 'lobby') return; r.settings = { map: MAP_IDS.includes(m.map) ? m.map : 'downtown', laps: Math.max(1, Math.min(3, Math.round(num(m.laps, 9)) || 2)),
+        police: typeof m.police === 'boolean' ? m.police : r.settings.police, traffic: m.traffic === undefined ? r.settings.traffic : Math.max(0, Math.min(2, Math.round(num(m.traffic, 9)))) }; if (typeof m.pub === 'boolean') r.pub = m.pub; snapshot(r); }
     else if (m.t === 'chat') {
       const now = Date.now(); if (now - me.lastChat < 700) return; me.lastChat = now;      // at most one message every 0.7 s
       const text = String(m.text ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 120); if (!text) return;

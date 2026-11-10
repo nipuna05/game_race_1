@@ -133,7 +133,7 @@ class Game {
 
   constructor(mp: MpCfg | null = null) {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
-    if (mp) { this.mode = 'race'; this.laps = mp.settings.laps; this.police = false; this.traffic = 0; }
+    if (mp) { this.mode = 'race'; this.laps = mp.settings.laps; this.police = mp.settings.police; this.traffic = mp.settings.traffic; }   // traffic and police run on each player's own screen
     this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
     this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
@@ -373,6 +373,7 @@ class Game {
 
   collideAgents(dt: number) {
     for (const r of this.riders) {
+      if (r.remote) continue;                                 // other players' cars and police are on their own screens
       const b = r.bike;
       for (const a of this.agents) {
         if (a.down > 0) continue;

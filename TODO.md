@@ -16,9 +16,11 @@
 
 - Multiplayer: server, rooms with codes, lobby, synced riders, fights, shared crates, results
 
+- Online: open room list (public/private rooms), lobby chat
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
-- Online police and traffic, text chat, kick/ban, quick-match
+- Online police and traffic, kick/ban, quick-match, chat during the race
 - Traffic lights and pedestrian crossings
 - Better bike and rider models (real GLB assets, with licence recorded)
 - More maps (rain, suburbs, off-road shortcuts)

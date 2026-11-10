@@ -1,11 +1,13 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const MAX_PLAYERS = 12;
 export const BIKE_IDS = ['scooter', 'vespa', 'chopper', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
 
 export interface PlayerInfo { id: number; name: string; bike: string; color: string }
 export interface Settings { map: string; laps: number }
+/** One open room in the list. */
+export interface RoomInfo { code: string; host: string; players: number; map: string; laps: number }
 
 /** One rider's moving state, sent about 15 times a second while racing. */
 export interface RiderState {
@@ -19,10 +21,12 @@ export interface RiderState {
 }
 
 export type C2S =
-  | { t: 'create'; ver: number; name: string; bike: string; color: string }
+  | { t: 'create'; ver: number; name: string; bike: string; color: string; pub?: boolean }
   | { t: 'join'; ver: number; code: string; name: string; bike: string; color: string }
   | { t: 'me'; name: string; bike: string; color: string }
-  | { t: 'settings'; map: string; laps: number }
+  | { t: 'settings'; map: string; laps: number; pub?: boolean }
+  | { t: 'list' }
+  | { t: 'chat'; text: string }
   | { t: 'start' }
   | ({ t: 's' } & RiderState)
   | { t: 'hit'; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }
@@ -33,7 +37,9 @@ export type C2S =
 export interface ResultRow { id: number; name: string; time: number | null }
 
 export type S2C =
-  | { t: 'room'; code: string; you: number; host: number; players: PlayerInfo[]; settings: Settings; status: 'lobby' | 'racing' }
+  | { t: 'room'; code: string; you: number; host: number; players: PlayerInfo[]; settings: Settings; status: 'lobby' | 'racing'; pub: boolean }
+  | { t: 'rooms'; rooms: RoomInfo[] }
+  | { t: 'chat'; id: number; name: string; text: string }
   | { t: 'start'; inMs: number; seed: number; settings: Settings; players: PlayerInfo[] }
   | ({ t: 's'; id: number } & RiderState)
   | { t: 'hit'; from: number; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }

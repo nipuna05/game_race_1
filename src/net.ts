@@ -1,9 +1,11 @@
 /// <reference types="vite/client" />
-import { PROTOCOL_VERSION, type C2S, type S2C, type PlayerInfo, type Settings, type RiderState, type ResultRow } from '../shared/protocol';
+import { PROTOCOL_VERSION, type C2S, type S2C, type PlayerInfo, type Settings, type RiderState, type ResultRow, type RoomInfo } from '../shared/protocol';
 
 /** The connection to the multiplayer server and the room you are in. */
-export interface Lobby { code: string; you: number; host: number; players: PlayerInfo[]; settings: Settings; status: 'lobby' | 'racing' }
+export interface Lobby { code: string; you: number; host: number; players: PlayerInfo[]; settings: Settings; status: 'lobby' | 'racing'; pub: boolean }
 export interface NetHandlers {
+  rooms?: () => void;                                                            // the list of open rooms arrived
+  chat?: (m: { id: number; name: string; text: string }) => void;
   lobby?: () => void;                                                            // the room changed (players, settings, host)
   start?: (m: Extract<S2C, { t: 'start' }>) => void;
   state?: (m: Extract<S2C, { t: 's' }>) => void;
@@ -26,6 +28,7 @@ export const defaultServer = () => {
 };
 
 export const net = {
+  rooms: [] as RoomInfo[], chatLog: [] as { id: number; name: string; text: string }[], pending: null as Promise<void> | null,
   ws: null as WebSocket | null, lobby: null as Lobby | null, status: 'off' as 'off' | 'connecting' | 'on', error: '', url: '',
   h: {} as NetHandlers,
 
@@ -39,19 +42,28 @@ export const net = {
       let ws: WebSocket; try { ws = new WebSocket(this.url); } catch { this.status = 'off'; this.error = 'That server address is not valid.'; this.h.lobby?.(); reject(); return; }
       this.ws = ws;
       const timer = window.setTimeout(() => { if (this.status === 'connecting') { this.error = 'Could not reach the server.'; ws.close(); } }, 6000);
-      ws.onopen = () => { window.clearTimeout(timer); this.status = 'on'; resolve(); };
-      ws.onerror = () => { if (this.status === 'connecting') this.error = 'Could not reach the server. Is it running, and is the address right?'; };
-      ws.onclose = () => { window.clearTimeout(timer); const was = this.status; this.status = 'off'; this.ws = null; this.lobby = null; if (was === 'connecting') { if (!this.error) this.error = 'Could not reach the server.'; reject(); } else this.h.closed?.(); this.h.lobby?.(); };
+      ws.onopen = () => { if (this.ws !== ws) return; window.clearTimeout(timer); this.status = 'on'; resolve(); };
+      ws.onerror = () => { if (this.ws === ws && this.status === 'connecting') this.error = 'Could not reach the server. Is it running, and is the address right?'; };
+      ws.onclose = () => { window.clearTimeout(timer); if (this.ws !== ws && this.ws !== null) return; const was = this.status; this.status = 'off'; this.ws = null; this.lobby = null; if (was === 'connecting') { if (!this.error) this.error = 'Could not reach the server.'; reject(); } else this.h.closed?.(); this.h.lobby?.(); };
       ws.onmessage = (e) => { try { this.onMsg(JSON.parse(String(e.data)) as S2C); } catch { /* ignore */ } };
     });
   },
+  /** Connect if not connected to this address yet (so the room list and creating a room share one connection). */
+  ensure(url: string): Promise<void> {
+    const u = url.trim();
+    if (this.status === 'on' && this.url === u) return Promise.resolve();
+    if (this.status === 'connecting' && this.pending && this.url === u) return this.pending;
+    return (this.pending = this.connect(u));
+  },
+  list() { this.send({ t: 'list' }); },
+  chat(text: string) { this.send({ t: 'chat', text }); },
   send(m: C2S) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m)); },
   close() { if (this.ws) { try { this.send({ t: 'leave' }); this.ws.close(); } catch { /* ignore */ } } this.ws = null; this.lobby = null; this.status = 'off'; },
 
-  create(name: string, bike: string, color: string) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color }); },
+  create(name: string, bike: string, color: string, pub = true) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color, pub }); },
   join(code: string, name: string, bike: string, color: string) { this.send({ t: 'join', ver: PROTOCOL_VERSION, code, name, bike, color }); },
   me(name: string, bike: string, color: string) { if (this.lobby) this.send({ t: 'me', name, bike, color }); },
-  settings(map: string, laps: number) { this.send({ t: 'settings', map, laps }); },
+  settings(map: string, laps: number, pub?: boolean) { this.send({ t: 'settings', map, laps, pub }); },
   start() { this.send({ t: 'start' }); },
   state(s: RiderState) { this.send({ t: 's', ...s }); },
   hit(to: number, mag: number, shove: number, how: 'punch' | 'kick' | 'rear') { this.send({ t: 'hit', to, mag, shove, how }); },
@@ -61,7 +73,9 @@ export const net = {
 
   onMsg(m: S2C) {
     switch (m.t) {
-      case 'room': this.lobby = { code: m.code, you: m.you, host: m.host, players: m.players, settings: m.settings, status: m.status }; this.error = ''; this.h.lobby?.(); break;
+      case 'rooms': this.rooms = m.rooms; this.h.rooms?.(); break;
+      case 'chat': this.chatLog.push({ id: m.id, name: m.name, text: m.text }); if (this.chatLog.length > 40) this.chatLog.shift(); this.h.chat?.(m); break;
+      case 'room': if (!this.lobby) this.chatLog = []; this.lobby = { code: m.code, you: m.you, host: m.host, players: m.players, settings: m.settings, status: m.status, pub: m.pub }; this.error = ''; this.h.lobby?.(); break;
       case 'err': this.error = m.msg; this.h.lobby?.(); break;
       case 'start': this.h.start?.(m); break;
       case 's': this.h.state?.(m); break;

@@ -1,15 +1,16 @@
 /** Bike Race multiplayer server: rooms with a 4-letter code, a lobby, and a relay for riders' states during a race.
  *  Each player's page simulates its own bike; the server keeps the room, the start time, the shared random seed and the results. */
 import { WebSocketServer, WebSocket } from 'ws';
-import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, type C2S, type S2C, type PlayerInfo, type Settings, type ResultRow } from '../shared/protocol';
+import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, type C2S, type S2C, type PlayerInfo, type Settings, type ResultRow, type RoomInfo } from '../shared/protocol';
 
 const PORT = Number(process.env.PORT) || 8090;
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);   // empty = any origin (fine on a home network)
 const MAX_ROOMS = 40, MAX_PER_IP = 8;
 
-interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number }
-interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null }
+interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number; lastChat: number }
+interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null }
 const rooms = new Map<string, Room>();
+const rooms_ = () => rooms;
 const where = new WeakMap<WebSocket, { room: Room; me: Player }>();
 const perIp = new Map<string, number>();
 let nextId = 1;
@@ -23,7 +24,7 @@ const info = (p: Player): PlayerInfo => ({ id: p.id, name: p.name, bike: p.bike,
 const list = (r: Room) => [...r.players.values()].sort((a, b) => a.id - b.id).map(info);
 const newCode = () => { const A = 'ABCDEFGHJKMNPQRSTUVWXYZ'; for (;;) { let c = ''; for (let i = 0; i < 4; i++) c += A[(Math.random() * A.length) | 0]; if (!rooms.has(c)) return c; } };
 
-function snapshot(r: Room) { for (const p of r.players.values()) send(p.ws, { t: 'room', code: r.code, you: p.id, host: r.host, players: list(r), settings: r.settings, status: r.status }); }
+function snapshot(r: Room) { for (const p of r.players.values()) send(p.ws, { t: 'room', code: r.code, you: p.id, host: r.host, players: list(r), settings: r.settings, status: r.status, pub: r.pub }); }
 function broadcast(r: Room, m: S2C, except?: number) { const s = JSON.stringify(m); for (const p of r.players.values()) if (p.id !== except && p.ws.readyState === p.ws.OPEN) p.ws.send(s); }
 
 function results(r: Room) {
@@ -71,21 +72,31 @@ wss.on('connection', (ws, req) => {
       let r: Room | undefined;
       if (m.t === 'create') {
         if (rooms.size >= MAX_ROOMS) { send(ws, { t: 'err', msg: 'The server is full. Try again later.' }); return; }
-        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', settings: { map: 'downtown', laps: 2 }, seed: 1, finTimer: null }; rooms.set(r.code, r);
+        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2 }, seed: 1, finTimer: null }; rooms.set(r.code, r);
       } else {
         r = rooms.get(String(m.code).toUpperCase().trim());
         if (!r) { send(ws, { t: 'err', msg: 'No room with that code.' }); return; }
         if (r.status !== 'lobby') { send(ws, { t: 'err', msg: 'A race is in progress. Try again when it ends.' }); return; }
         if (r.players.size >= MAX_PLAYERS) { send(ws, { t: 'err', msg: 'The room is full.' }); return; }
       }
-      const me: Player = { id: nextId++, ws, name: clean(m.name), bike: cleanBike(m.bike), color: cleanColor(m.color), fin: null, msgs: 0 };
+      const me: Player = { id: nextId++, ws, name: clean(m.name), bike: cleanBike(m.bike), color: cleanColor(m.color), fin: null, msgs: 0, lastChat: 0 };
       r.players.set(me.id, me); if (!r.host) r.host = me.id; where.set(ws, { room: r, me }); snapshot(r); return;
+    }
+    if (m.t === 'list') {   // the open rooms: public, waiting in the lobby and not full
+      const rooms: RoomInfo[] = [...rooms_().values()].filter((r) => r.pub && r.status === 'lobby' && r.players.size < MAX_PLAYERS).slice(0, 30)
+        .map((r) => ({ code: r.code, host: r.players.get(r.host)?.name ?? '?', players: r.players.size, map: r.settings.map, laps: r.settings.laps }));
+      send(ws, { t: 'rooms', rooms }); return;
     }
     if (!w) return;
     const { room: r, me } = w;
 
     if (m.t === 'me') { if (r.status !== 'lobby') return; me.name = clean(m.name); me.bike = cleanBike(m.bike); me.color = cleanColor(m.color); snapshot(r); }
-    else if (m.t === 'settings') { if (r.host !== me.id || r.status !== 'lobby') return; r.settings = { map: MAP_IDS.includes(m.map) ? m.map : 'downtown', laps: Math.max(1, Math.min(3, Math.round(num(m.laps, 9)) || 2)) }; snapshot(r); }
+    else if (m.t === 'settings') { if (r.host !== me.id || r.status !== 'lobby') return; r.settings = { map: MAP_IDS.includes(m.map) ? m.map : 'downtown', laps: Math.max(1, Math.min(3, Math.round(num(m.laps, 9)) || 2)) }; if (typeof m.pub === 'boolean') r.pub = m.pub; snapshot(r); }
+    else if (m.t === 'chat') {
+      const now = Date.now(); if (now - me.lastChat < 700) return; me.lastChat = now;      // at most one message every 0.7 s
+      const text = String(m.text ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 120); if (!text) return;
+      broadcast(r, { t: 'chat', id: me.id, name: me.name, text });
+    }
     else if (m.t === 'start') {
       if (r.host !== me.id || r.status !== 'lobby') return;
       r.status = 'racing'; r.seed = (Math.random() * 2 ** 31) | 0; for (const p of r.players.values()) p.fin = null;

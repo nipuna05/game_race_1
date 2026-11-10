@@ -9,7 +9,7 @@ const QS = new URLSearchParams(location.search);
 const OPT_KEY = 'bikerace.opts.v1';
 
 /** The player's choices. Saved in the browser; the query string can override them for quick tests (?map=neon&bike=hyper&police=0). */
-export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3', steer: '100', diff: 'normal' };
+export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3', steer: '100', diff: 'normal', pub: '1' };
 try { Object.assign(opt, JSON.parse(localStorage.getItem(OPT_KEY) || '{}')); } catch { /* defaults */ }
 for (const k of Object.keys(opt)) if (QS.has(k)) opt[k] = QS.get(k)!;
 const save = () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(opt)); } catch { /* ignore */ } };
@@ -47,6 +47,9 @@ export function initMenu(h: Hooks, s: Sound) {
   $('p-main').addEventListener('click', () => hooks.toMain());
   $('chip').addEventListener('click', () => setTab('profile'));
   net.h.lobby = () => { if (tab === 'online' && !$('home').classList.contains('off')) render(); };
+  net.h.rooms = net.h.lobby;
+  net.h.chat = (c) => { const log = document.getElementById('chatlog'); if (!log) return; const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = c.name.replace(/[<>&"]/g, ''); d.append(b, ' ' + c.text.replace(/[<>&"]/g, '')); log.appendChild(d); log.scrollTop = log.scrollHeight; };
+  window.setInterval(() => { if (tab === 'online' && !net.lobby && net.status === 'on' && !$('home').classList.contains('off')) net.list(); }, 4000);   // keep the room list fresh
   onProfile(renderChip); renderChip();
   setTab('play', true);
 }
@@ -65,6 +68,7 @@ export function setTab(t: Tab, quiet = false) {
   if (t !== 'garage' && viewId !== opt.bike) { viewId = opt.bike; hooks?.preview(); }
   $('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.t === t));
   render(); hooks?.tab(t);
+  if (t === 'online' && !net.lobby) net.ensure(net.url || defaultServer()).then(() => net.list()).catch(() => { /* shown in the panel */ });
 }
 
 const seg = (key: string, label: string, vals: [string, string][]) =>
@@ -95,25 +99,32 @@ function render() {
       <button class="go" id="go">${opt.mode === 'race' ? 'START RACE' : 'START RIDING'}</button>
       <div class="best">${best && opt.mode === 'race' ? `Your best on ${m.name}: ${fmt(best)}` : '&nbsp;'}</div>`;
   } else if (tab === 'online') {
-    const L = net.lobby;
+    const L = net.lobby, clean = (t: string) => t.replace(/[<>&"]/g, '');
     if (!L) {
+      const rl = net.rooms;
       h = `<h2>Online</h2>
-        <div class="desc">Race your friends. One person creates a room and shares the 4-letter code. Everyone on the same network can join.</div>
-        <h3>Server</h3><input id="srv" class="txt" value="${net.url || defaultServer()}" spellcheck="false" />
-        <h3>Join a room</h3><div class="joinrow"><input id="code" class="txt" maxlength="4" placeholder="CODE" spellcheck="false" /><button class="go" id="joinbtn">JOIN</button></div>
+        <div class="desc">Race other players. Join an open room, or create one and share the code with friends.</div>
+        <h3>Open rooms <button class="mini" id="refresh">Refresh</button></h3>
+        <div class="plist">${rl.length ? rl.map((r) => `<div class="pl"><span>${clean(r.host)}'s room <small>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${r.laps} lap${r.laps > 1 ? 's' : ''} &middot; ${r.players}/12</small></span><button class="go small" data-room="${r.code}" style="width:90px;margin:0;padding:7px">JOIN</button></div>`).join('') : `<div class="desc">${net.status === 'on' ? 'No open rooms right now. Create one!' : net.status === 'connecting' ? 'Connecting...' : 'Not connected to the server.'}</div>`}</div>
+        <h3>Join with a code</h3><div class="joinrow"><input id="code" class="txt" maxlength="4" placeholder="CODE" spellcheck="false" /><button class="go" id="joinbtn">JOIN</button></div>
         <button class="go" id="createbtn" style="margin-top:14px">CREATE A ROOM</button>
-        ${net.status === 'connecting' ? '<div class="best">Connecting...</div>' : ''}${net.error ? `<div class="err">${net.error}</div>` : ''}
-        <div class="foot" style="margin-top:12px">Your bike, colour and name from the Garage and Profile are used. Police and traffic are off online for now.</div>`;
+        <label class="chk"><input type="checkbox" id="pubchk" ${opt.pub === '0' ? '' : 'checked'} /> Public: list my room for everyone</label>
+        ${net.error ? `<div class="err">${net.error}</div>` : ''}
+        <h3>Server</h3><input id="srv" class="txt" value="${net.url || defaultServer()}" spellcheck="false" />
+        <div class="foot" style="margin-top:10px">Your bike, colour and name from the Garage and Profile are used. Police and traffic are off online for now.</div>`;
     } else {
       const host = net.isHost, st = L.settings;
       h = `<h2>Room <span class="code">${L.code}</span></h2>
-        <div class="desc">Share the code. ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
+        <div class="desc">${L.pub ? 'Public room' : 'Private room: share the code'} &middot; ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
         <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}</small></div>`).join('')}</div>
         ${host ? `<h3>Race settings</h3>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
           <div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+          <div class="row"><span>Room</span><div class="seg" id="mppub"><button data-v="1" class="${L.pub ? 'on' : ''}">Public</button><button data-v="0" class="${L.pub ? '' : 'on'}">Private</button></div></div>
           <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START RACE</button>`
         : `<h3>Race settings</h3><div class="desc">${MAPS.find((x) => x.id === st.map)?.name ?? st.map} &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}<br>Waiting for the host to start...</div>`}
+        <h3>Chat</h3><div class="chat" id="chatlog">${net.chatLog.map((c) => `<div><b>${clean(c.name)}</b> ${clean(c.text)}</div>`).join('')}</div>
+        <input id="chatin" class="txt" maxlength="120" placeholder="Type a message and press Enter" spellcheck="false" style="margin-top:6px" />
         <button class="danger" id="mpleave">Leave room</button>${net.error ? `<div class="err">${net.error}</div>` : ''}`;
     }
   } else if (tab === 'garage') {
@@ -174,15 +185,19 @@ function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLInputElement>('[data-steer]').forEach((r) => r.addEventListener('input', () => { opt.steer = r.value; save(); setSteer(Number(r.value) / 100); $('v-steer').textContent = `${r.value}%`; }));
   p.querySelectorAll<HTMLInputElement>('[data-vol="sfx"]').forEach((r) => r.addEventListener('change', () => sound.thump(6)));
   $('go')?.addEventListener('click', () => hooks.start());
-  const connectThen = (act: () => void) => { const u = (p.querySelector<HTMLInputElement>('#srv')?.value || defaultServer()).trim(); net.connect(u).then(act).catch(() => { /* the error is shown in the panel */ }); };
-  p.querySelector('#createbtn')?.addEventListener('click', () => connectThen(() => net.create(profile.name, opt.bike, opt.color)));
+  const connectThen = (act: () => void) => { const u = (p.querySelector<HTMLInputElement>('#srv')?.value || net.url || defaultServer()).trim(); net.ensure(u).then(act).catch(() => { /* the error is shown in the panel */ }); };
+  p.querySelector('#createbtn')?.addEventListener('click', () => { const pub = p.querySelector<HTMLInputElement>('#pubchk')?.checked !== false; opt.pub = pub ? '1' : '0'; save(); connectThen(() => net.create(profile.name, opt.bike, opt.color, pub)); });
+  p.querySelectorAll<HTMLElement>('[data-room]').forEach((b) => b.addEventListener('click', () => connectThen(() => net.join(b.dataset.room!, profile.name, opt.bike, opt.color))));
+  p.querySelector('#refresh')?.addEventListener('click', () => { net.ensure(net.url || defaultServer()).then(() => net.list()).catch(() => { /* shown in the panel */ }); });
+  p.querySelector('#mppub')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, net.lobby.settings.laps, b.dataset.v === '1'); });
   const doJoin = () => { const code = (p.querySelector<HTMLInputElement>('#code')?.value || '').trim(); if (code.length === 4) connectThen(() => net.join(code, profile.name, opt.bike, opt.color)); };
   p.querySelector('#joinbtn')?.addEventListener('click', doJoin);
-  p.querySelectorAll<HTMLInputElement>('.txt').forEach((i) => { i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { if (i.id === 'code') doJoin(); } }); });
+  p.querySelectorAll<HTMLInputElement>('.txt').forEach((i) => { i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { if (i.id === 'code') doJoin(); else if (i.id === 'chatin' && i.value.trim()) { net.chat(i.value); i.value = ''; } } }); });
   p.querySelector('#mpmap')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(b.dataset.v!, net.lobby.settings.laps); });
   p.querySelector('#mplaps')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, Number(b.dataset.v)); });
   p.querySelector('#mpstart')?.addEventListener('click', () => net.start());
-  p.querySelector('#mpleave')?.addEventListener('click', () => { net.close(); render(); });
+  p.querySelector('#mpleave')?.addEventListener('click', () => { net.leaveRoom(); render(); net.list(); });
+  const log = p.querySelector('#chatlog'); if (log) log.scrollTop = log.scrollHeight;
   const pn = p.querySelector<HTMLInputElement>('#pname'); if (pn) { pn.addEventListener('change', () => { setName(pn.value); pn.value = profile.name; syncMe(); }); pn.addEventListener('keydown', (e) => e.stopPropagation()); }
   p.querySelector('#resetp')?.addEventListener('click', () => { if (confirm('Reset your name, level, stats, coins and bikes? Best times are kept.')) { resetProfile(); render(); } });
 }

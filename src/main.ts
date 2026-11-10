@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { buildCity, P, R, K, HALF, rnd, clamp } from './city';
 import { Agent } from './agents';
-import { Bike, aiInput, MAX_SPEED, type Input } from './bike';
+import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { Sound } from './audio';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -22,7 +22,8 @@ const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.
 addEventListener('resize', resize); resize();
 
 // ---------- settings (menu) ----------
-const opt: Record<string, string> = { mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
+const savedBike = (() => { try { return localStorage.getItem('bikerace.bike.v1') || 'street'; } catch { return 'street'; } })();
+const opt: Record<string, string> = { bike: savedBike, field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
 document.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
   seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); opt[seg.dataset.k!] = b.dataset.v!;
@@ -31,6 +32,17 @@ document.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
 for (const k of Object.keys(opt)) if (QS.has(k)) {   // ?mode=free&police=0&traffic=2 ... for quick tests
   opt[k] = QS.get(k)!; document.querySelectorAll<HTMLElement>(`.seg[data-k=${k}] button`).forEach((b) => b.classList.toggle('on', b.dataset.v === opt[k]));
 }
+const bikeSeg = document.querySelector<HTMLElement>('.seg[data-k=bike]')!;
+BIKES.forEach((b) => { const el = document.createElement('button'); el.dataset.v = b.id; el.textContent = `${b.name} ${b.cc}cc`; bikeSeg.appendChild(el); });
+const pickBike = (id: string) => {
+  const b = BIKES.find((x) => x.id === id) ?? BIKES[0]; opt.bike = b.id;
+  bikeSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', (x as HTMLElement).dataset.v === b.id));
+  const bar = (v: number, lo: number, hi: number) => `<i style="width:${Math.round(clamp((v - lo) / (hi - lo), 0.08, 1) * 100)}%"></i>`;
+  $('bikeinfo').innerHTML = `<b>${b.name}</b> <span style="color:#8fb0d0">${b.category} class &middot; ${b.cc} cc</span><br>${b.desc}<div class="stats"><span>Speed${bar(b.top, 0.6, 1.3)}</span><span>Pickup${bar(b.accel, 0.6, 1.3)}</span><span>Handling${bar(b.turn, 0.7, 1.5)}</span><span>Boost${bar(b.boost, 0.5, 1.4)}</span></div>`;
+  try { localStorage.setItem('bikerace.bike.v1', b.id); } catch { /* ignore */ }
+};
+bikeSeg.addEventListener('click', (e) => { const v = (e.target as HTMLElement).dataset?.v; if (v) pickBike(v); });
+pickBike(opt.bike);
 const bestKey = 'bikerace.best.v1';
 const loadBest = (): number => { try { return Number(localStorage.getItem(bestKey)) || 0; } catch { return 0; } };
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
@@ -86,13 +98,15 @@ class Game {
   placed = 0; camPos = new THREE.Vector3();
 
   constructor() {
-    this.player = { bike: new Bike(0xffd24a), passed: 0, finishedAt: 0, name: 'You', lane: 0, isPlayer: true };
+    const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
+    this.player = { bike: new Bike(mine.color, mine), passed: 0, finishedAt: 0, name: 'You', lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
     if (this.mode === 'race') {
       const cols = [0x3498db, 0xe74c3c, 0x2ecc71, 0x9b59b6, 0xe67e22];
       for (let i = 0; i < Number(opt.rivals); i++) {
-        const r: Rider = { bike: new Bike(cols[i % cols.length]), passed: 0, finishedAt: 0, name: `Rider ${i + 1}`, lane: rnd(2, 4.5), isPlayer: false };
-        r.bike.skill = rnd(0.86, 0.98); scene.add(r.bike.mesh.root); this.riders.push(r);
+        const rd = opt.field === 'mixed' ? BIKES[(Math.random() * BIKES.length) | 0] : mine;
+        const r: Rider = { bike: new Bike(cols[i % cols.length], rd), passed: 0, finishedAt: 0, name: `Rider ${i + 1}`, lane: rnd(2, 4.5), isPlayer: false };
+        r.bike.skill = rnd(0.9, 0.99); scene.add(r.bike.mesh.root); this.riders.push(r);
       }
     }
     const nCars = [0, 36, 72][this.traffic], nPeds = [0, 60, 130][this.traffic], nPol = this.police ? [2, 3, 5][this.traffic] : 0;

@@ -38,7 +38,7 @@ const node = (n: number) => NODE[((n % N) + N) % N];
 // ---------- input ----------
 const keys = new Set<string>();
 const sound = new Sound();
-let ui: 'home' | 'play' | 'pause' = 'home';
+let ui: 'home' | 'play' | 'pause' | 'wreck' = 'home';
 addEventListener('pointerdown', () => { sound.start(); $('sndhint').style.display = 'none'; });
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -102,6 +102,7 @@ class Game {
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
+  lives = 3; fallTimes: number[] = [];
 
   constructor() {
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
@@ -201,7 +202,12 @@ class Game {
       }
       const wasFallen = b.fall > 0;
       const impact = b.step(inp, dt);
-      if (!wasFallen && b.fall > 0 && r.isPlayer) toast('You fell off! Getting up...', 1600, '#ffb36b');
+      if (!wasFallen && b.fall > 0 && r.isPlayer) {
+        toast('You fell off! Getting up...', 1600, '#ffb36b');
+        this.fallTimes.push(this.t); this.fallTimes = this.fallTimes.filter((x) => this.t - x < 20);
+        if (this.fallTimes.length >= 3) { this.wreck('Knocked off three times in a row'); return; }
+      }
+      if (r.isPlayer && impact > 22) { this.wreck('Hit something at full speed'); return; }
       if (live && b.fall <= 0) this.pickups(r);
       if (r.isPlayer && impact > 5) { sound.thump(impact); if (impact > 12) { flash(); this.crime(0.7, 'crash'); } }
       if (this.mode === 'race' && live) {
@@ -297,7 +303,7 @@ class Game {
         // cars: push out, lose speed
         const nx = dx / d, nz = dz / d, push = rr - d; b.x += nx * push; b.z += nz * push;
         const f = b.fwd, closing = -(f.x * nx + f.z * nz) * b.speed + (Math.sin(a.h) * nx + Math.cos(a.h) * nz) * a.speed;
-        if (closing > 4) { if (r.isPlayer) { sound.thump(closing); flash(); if (a.kind !== 'police') this.crime(0.6, 'crash'); } b.speed *= 0.5; a.stun = 0.8; }
+        if (closing > 4) { if (r.isPlayer) { sound.thump(closing); flash(); if (a.kind !== 'police') this.crime(0.6, 'crash'); if (closing > 24) { this.wreck(a.kind === 'police' ? 'Rammed by the police' : 'Slammed into a car'); return; } } b.speed *= 0.5; a.stun = 0.8; }
         else b.speed *= 1 - 0.8 * dt;
         void dt;
       }
@@ -392,6 +398,33 @@ class Game {
     }
   }
 
+  /** The bike is wrecked: freeze the game and offer to respawn (while you have respawns left), retry or leave. */
+  wreck(reason: string) {
+    if (ui !== 'play' || this.phase === 'done') return;
+    const race = this.mode === 'race', out = race && this.lives <= 0;
+    ui = 'wreck'; sound.engine(false); sound.fall(); flash();
+    $('w-title').textContent = out ? 'DNF' : 'WRECKED';
+    $('w-why').textContent = out ? `${reason}. You are out of respawns.` : reason;
+    $('w-lives').innerHTML = race ? `<span>${'\u2665'.repeat(this.lives)}</span><s>${'\u2665'.repeat(3 - this.lives)}</s>` : '';
+    const rs = $('w-respawn') as HTMLButtonElement; rs.disabled = out; rs.textContent = race ? `RESPAWN (+8 s)` : 'RESPAWN';
+    ($('w-retry') as HTMLElement).textContent = race ? 'RETRY RACE' : 'RESTART';
+    $('wreck').classList.add('on');
+  }
+  /** Back on the road at the last checkpoint, bike repaired. */
+  respawn() {
+    const race = this.mode === 'race', me = this.player, b = me.bike;
+    if (race) { this.lives--; this.raceT += 8; this.penalty += 8; }
+    b.fall = 0; b.balance = 1; b.turbo = b.shield = b.power = b.padT = 0; b.inv = 2.2; b.crash = 0; b.speed = 0; b.lat = 0; this.fallTimes = [];
+    this.heat = 0; this.endChase(); this.bust = 0;
+    if (race) {
+      const to = node(me.passed), back = me.passed === 0 ? { x: node(0).x - 26, z: node(0).z } : node(me.passed - 1);   // before the first checkpoint: the start line
+      b.x = back.x; b.z = back.z; b.h = Math.atan2(to.x - back.x, to.z - back.z);
+    }
+    this.resetPlayer(); this.camH = b.h; this.updateCamera(1, true);
+    for (const a of this.agents) if (Math.hypot(a.x - b.x, a.z - b.z) < 25) a.placeOnRoad(b, 90);
+    $('wreck').classList.remove('on'); ui = 'play'; sound.engine(true); sound.ui('select');
+  }
+
   finish() {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     const rk = this.rank(); const t = this.raceT;
@@ -420,7 +453,7 @@ class Game {
     ($('boostfill') as HTMLElement).style.width = `${Math.round(b.boostLeft * 100)}%`;
     if (this.mode === 'race') {
       const lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), tm = this.phase === 'done' ? this.player.finishedAt : this.raceT;
-      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
+      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(3 - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
     } else $('race').innerHTML = '<b>Free ride</b><br>Explore the city';
     const ps: string[] = [];
     if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);
@@ -513,6 +546,9 @@ initMenu({
   restart: () => { startGame(); },
   toMain: () => { game?.dispose(); game = null; enterHome(); },
 }, sound);
+$('w-respawn').addEventListener('click', () => game?.respawn());
+$('w-retry').addEventListener('click', () => { $('wreck').classList.remove('on'); startGame(); });
+$('w-main').addEventListener('click', () => { $('wreck').classList.remove('on'); game?.dispose(); game = null; enterHome(); });
 (window as any).__ui = () => ui;
 enterHome();
 if (new URLSearchParams(location.search).has('auto')) startGame();

@@ -36,6 +36,10 @@ npm run build
 
 Hit riders next to you with a punch (Q / E) or a kick (F). Each hit costs the rider balance; at zero they fall off and lose a couple of seconds. Coming up fast from behind and bumping a rider also knocks them off. Rivals fight back.
 
+## Wrecks and respawns
+
+A very hard hit (a building or car at full speed, or a police ram), or being knocked off three times within 20 seconds, wrecks the bike. You get Respawn, Retry or Main menu. In a race you have 3 respawns (hearts on the HUD); each respawn puts you back at the last checkpoint for +8 s and clears your power-ups. With none left it is a DNF. Free ride has unlimited respawns.
+
 ## Power-ups and boost pads
 
 Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.

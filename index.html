@@ -74,11 +74,13 @@
   #sndhint { position: fixed; right: 22px; bottom: 16px; z-index: 11; font-size: 14px; color: #ffd24a; letter-spacing: .1em; text-transform: uppercase; animation: blink 1.4s infinite; pointer-events: none; } @keyframes blink { 50% { opacity: .35; } }
 
   /* ---------- pause ---------- */
-  #pause { position: fixed; inset: 0; z-index: 12; display: none; align-items: center; justify-content: center; background: rgba(5,8,14,.7); backdrop-filter: blur(4px); }
-  #pause.on { display: flex; }
-  #pause .box { width: min(380px, 90vw); padding: 26px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); text-align: center; animation: pin .25s ease-out; }
-  #pause h2 { margin: 0 0 16px; font: 900 26px Orbitron, system-ui; letter-spacing: .12em; color: var(--gold); }
-  #pause button { display: block; width: 100%; margin: 8px 0; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.07); color: #fff; font: 800 16px Orbitron, system-ui; letter-spacing: .1em; cursor: pointer; transition: all .12s; } #pause button:hover { background: rgba(255,255,255,.16); transform: translateY(-1px); } #pause button.main { background: var(--gold); color: #111; }
+  #pause, #wreck { position: fixed; inset: 0; z-index: 12; display: none; align-items: center; justify-content: center; background: rgba(5,8,14,.7); backdrop-filter: blur(4px); }
+  #pause.on, #wreck.on { display: flex; }
+  #pause .box, #wreck .box { width: min(380px, 90vw); padding: 26px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); text-align: center; animation: pin .25s ease-out; }
+  #pause h2, #wreck h2 { margin: 0 0 16px; font: 900 26px Orbitron, system-ui; letter-spacing: .12em; color: var(--gold); }
+  #wreck h2 { color: #ff6b5a; } #wreck .why { color: #c3d0e0; font-size: 16px; margin: -6px 0 6px; } #wreck .lives { font-size: 26px; letter-spacing: .2em; margin: 8px 0 12px; color: #ff5a5a; } #wreck .lives s { color: #444; text-decoration: none; }
+  #wreck button:disabled { opacity: .35; cursor: not-allowed; transform: none; }
+  #pause button, #wreck button { display: block; width: 100%; margin: 8px 0; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.07); color: #fff; font: 800 16px Orbitron, system-ui; letter-spacing: .1em; cursor: pointer; transition: all .12s; } #pause button:hover { background: rgba(255,255,255,.16); transform: translateY(-1px); } #pause button.main, #wreck button.main { background: var(--gold); color: #111; }
   #pause p { color: #8fb0d0; font-size: 14px; margin: 14px 0 0; }
 </style>
 </head>
@@ -104,6 +106,14 @@
   </div>
 </div>
 <div id="sndhint">Click or press any key for sound</div>
+<div id="wreck"><div class="box">
+  <h2 id="w-title">WRECKED</h2>
+  <div class="why" id="w-why"></div>
+  <div class="lives" id="w-lives"></div>
+  <button id="w-respawn" class="main">RESPAWN (+8 s)</button>
+  <button id="w-retry">RETRY RACE</button>
+  <button id="w-main">MAIN MENU</button>
+</div></div>
 <div id="pause"><div class="box">
   <h2>PAUSED</h2>
   <button id="p-resume" class="main">RESUME</button>

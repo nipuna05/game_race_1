@@ -76,6 +76,9 @@ const sound = new Sound();
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   keys.add(e.code); sound.start();
+  if (game && !menuOpen && !e.repeat) {
+    if (e.code === 'KeyQ') game.attack(game.player, 'punch', -1); else if (e.code === 'KeyE') game.attack(game.player, 'punch', 1); else if (e.code === 'KeyF') game.attack(game.player, 'kick');
+  }
   if (e.code === 'Escape' && game) toggleMenu();
   if (e.code === 'KeyR' && game && !menuOpen) game.resetPlayer();
 });
@@ -102,6 +105,35 @@ const toast = (msg: string, ms = 1600, color = '#fff') => {
   window.clearTimeout((toast as any).t); (toast as any).t = window.setTimeout(() => el.classList.remove('on'), ms);
 };
 
+type LootType = 'nitro' | 'turbo' | 'shield' | 'power';
+const LOOT: Record<LootType, { name: string; letter: string; color: string; hex: number; text: string }> = {
+  nitro: { name: 'NITRO', letter: 'N', color: '#3aa8ff', hex: 0x3aa8ff, text: 'Boost refilled and a burst of speed' },
+  turbo: { name: 'SUPER SPEED', letter: 'S', color: '#ff5a3a', hex: 0xff5a3a, text: 'Much higher top speed for 6 seconds' },
+  shield: { name: 'SHIELD', letter: 'D', color: '#3ddc84', hex: 0x3ddc84, text: 'Nobody can knock you off for 8 seconds' },
+  power: { name: 'POWER HITS', letter: 'P', color: '#c77dff', hex: 0xc77dff, text: 'Your punches and kicks knock riders down for 10 seconds' },
+};
+interface Loot { type: LootType; x: number; z: number; cd: number; mesh: THREE.Group }
+interface Pad { x: number; z: number; axis: 'x' | 'z'; mesh: THREE.Group }
+const lootMats: Partial<Record<LootType, THREE.MeshBasicMaterial>> = {};
+function lootMat(t: LootType): THREE.MeshBasicMaterial {
+  if (lootMats[t]) return lootMats[t]!;
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!;
+  g.fillStyle = LOOT[t].color; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(255,255,255,.9)'; g.font = '800 44px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(LOOT[t].letter, 32, 36);
+  g.strokeStyle = '#fff'; g.lineWidth = 4; g.strokeRect(2, 2, 60, 60);
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+  return (lootMats[t] = new THREE.MeshBasicMaterial({ map: tx }));
+}
+let padMatCache: THREE.MeshBasicMaterial | null = null;
+function padMat(): THREE.MeshBasicMaterial {
+  if (padMatCache) return padMatCache;
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(20,24,34,.85)'; g.fillRect(0, 0, 128, 64);
+  g.strokeStyle = '#ffb21a'; g.lineWidth = 9; g.lineCap = 'round';
+  for (let i = 0; i < 3; i++) { const x = 18 + i * 34; g.beginPath(); g.moveTo(x, 12); g.lineTo(x + 20, 32); g.lineTo(x, 52); g.stroke(); }
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+  return (padMatCache = new THREE.MeshBasicMaterial({ map: tx, transparent: true }));
+}
+
 interface Rider { bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean }
 
 class Game {
@@ -111,6 +143,7 @@ class Game {
   heat = 0; bust = 0; lastBeep = 4;
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
+  loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
 
   constructor() {
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
@@ -132,6 +165,7 @@ class Game {
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(R / 2 - 1.5, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
     this.ring.rotation.x = Math.PI / 2; this.ring.position.y = 0.4;
     if (this.mode === 'race') scene.add(this.beacon, this.ring);
+    this.placeLoot();
     this.resetStart();
   }
 
@@ -142,6 +176,8 @@ class Game {
   dispose() {
     for (const r of this.riders) scene.remove(r.bike.mesh.root);
     for (const a of this.agents) scene.remove(a.mesh);
+    for (const l of this.loots) scene.remove(l.mesh);
+    for (const p of this.pads) scene.remove(p.mesh);
     scene.remove(this.beacon, this.ring);
   }
 
@@ -202,9 +238,13 @@ class Game {
         else {
           const to = this.nextNode(r), from = node(r.passed - 1);
           inp = aiInput(b, from.x, from.z, to.x, to.z, r.lane, 1);
+          this.aiFight(r, dt);
         }
       }
+      const wasFallen = b.fall > 0;
       const impact = b.step(inp, dt);
+      if (!wasFallen && b.fall > 0 && r.isPlayer) toast('You fell off! Getting up...', 1600, '#ffb36b');
+      if (live && b.fall <= 0) this.pickups(r);
       if (r.isPlayer && impact > 5) { sound.thump(impact); if (impact > 12) { flash(); this.crime(0.7, 'crash'); } }
       if (this.mode === 'race' && live) {
         const n = this.nextNode(r);
@@ -217,10 +257,17 @@ class Game {
         }
       }
     }
-    // riders bump each other
+    // riders bump each other; coming up fast from behind knocks the rider in front off
     for (let i = 0; i < this.riders.length; i++) for (let j = i + 1; j < this.riders.length; j++) {
-      const a = this.riders[i].bike, c = this.riders[j].bike, dx = c.x - a.x, dz = c.z - a.z, d = Math.hypot(dx, dz);
-      if (d < 1.4 && d > 1e-4) { const k = (1.4 - d) / 2 / d; a.x -= dx * k; a.z -= dz * k; c.x += dx * k; c.z += dz * k; }
+      const ra = this.riders[i], rc = this.riders[j], a = ra.bike, c = rc.bike, dx = c.x - a.x, dz = c.z - a.z, d = Math.hypot(dx, dz);
+      if (d < 1.4 && d > 1e-4) {
+        const k = (1.4 - d) / 2 / d; a.x -= dx * k; a.z -= dz * k; c.x += dx * k; c.z += dz * k;
+        const aRear = dx * a.fwd.x + dz * a.fwd.z > 0.3 && dx * c.fwd.x + dz * c.fwd.z > 0;     // c is ahead of a, both facing the same way
+        const cRear = -dx * c.fwd.x - dz * c.fwd.z > 0.3 && -dx * a.fwd.x - dz * a.fwd.z > 0;
+        const rear = aRear ? ra : cRear ? rc : null, front = aRear ? rc : ra;
+        const closing = rear ? rear.bike.speed - front.bike.speed : 0;
+        if (rear && closing > 5) this.knock(rear, front, rear.bike.power > 0 ? 2 : clamp(closing / 13, 0.2, 1.2), 'rear');
+      }
     }
 
     // traffic, people, police
@@ -247,6 +294,10 @@ class Game {
       if (closest < 5 && me.speed < 12 && chasers > 0) { this.bust += dt; if (this.bust > 2) this.busted(); } else this.bust = Math.max(0, this.bust - dt);
     }
     this.collideAgents(dt);
+    for (const l of this.loots) {
+      if (l.cd > 0) { l.cd -= dt; if (l.cd <= 0) l.mesh.visible = true; }
+      l.mesh.rotation.y += dt * 2.2; l.mesh.position.y = 1.6 + Math.sin(this.t * 3 + l.x) * 0.25;
+    }
     sound.update(me.speed, me.boosting, closest < 90 && this.heat > 0 ? clamp(1 - closest / 90, 0.2, 1) : 0);
     this.updateCamera(dt, false);
     if (mapDef().night) { const f = me.fwd; headlight.position.set(me.x + f.x * 6, 5, me.z + f.z * 6); }
@@ -295,6 +346,94 @@ class Game {
     }
   }
 
+  /** A punch (Q left hand, E right hand) or a kick (F, nearest side). Hits a rider next to you. */
+  attack(a: Rider, kind: 'punch' | 'kick', side?: 1 | -1): boolean {
+    const b = a.bike;
+    if (b.fall > 0 || (this.phase === 'count') || (kind === 'punch' ? b.punchCd > 0 : b.kickCd > 0)) return false;
+    const fx = b.fwd.x, fz = b.fwd.z, rx = -Math.cos(b.h), rz = Math.sin(b.h);
+    const reach = (kind === 'kick' ? 3 : 2.6) + (b.power > 0 ? 1 : 0);
+    let best: Rider | null = null, bd = 99, bs: 1 | -1 = 1;
+    for (const o of this.riders) {
+      if (o === a || o.bike.fall > 0) continue;
+      const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * fx + dz * fz, r = dx * rx + dz * rz;
+      if (Math.abs(f) > 2.4 || Math.abs(r) > reach || Math.abs(r) < 0.1) continue;
+      const sd: 1 | -1 = r > 0 ? 1 : -1; if (side && sd !== side) continue;
+      const d = Math.hypot(dx, dz); if (d < bd) { bd = d; best = o; bs = sd; }
+    }
+    b.swing(kind, side ?? bs);
+    if (!best) return false;
+    this.knock(a, best, b.power > 0 ? 2 : kind === 'kick' ? 0.5 : 0.3, kind, bs);
+    return true;
+  }
+  /** Apply a hit from one rider to another and tell the player what happened. */
+  knock(from: Rider, to: Rider, mag: number, how: 'punch' | 'kick' | 'rear', side: 1 | -1 = 1) {
+    const t = to.bike, f = from.bike;
+    // push the victim away from the attacker, in the victim's own left/right
+    let shove: number;
+    if (how === 'rear') shove = (t.x - f.x) * -Math.cos(t.h) + (t.z - f.z) * Math.sin(t.h);
+    else { const px = -Math.cos(f.h) * side, pz = Math.sin(f.h) * side; shove = px * -Math.cos(t.h) + pz * Math.sin(t.h); if (how === 'punch' || how === 'kick') { t.x += px * 0.6; t.z += pz * 0.6; } }
+    const res = t.hit(mag, clamp(shove, -1, 1) * (how === 'kick' ? 1.6 : 1));
+    if (how === 'rear') f.speed *= 0.92;
+    if (res === 'ignored') { if (from.isPlayer || to.isPlayer) toast(to.bike.shield > 0 ? 'Shield blocked it!' : '', 600, '#8affb0'); return; }
+    if (from.isPlayer || to.isPlayer) {
+      sound.thump(res === 'fell' ? 10 : 5);
+      if (res === 'fell') toast(from.isPlayer ? `${to.name} is down!` : `${from.name} knocked you off!`, 1400, from.isPlayer ? '#8affb0' : '#ff8a8a');
+      else toast(how === 'rear' ? 'Bumped!' : how === 'kick' ? 'Kick!' : 'Punch!', 500, '#ffd24a');
+    }
+    if (from.isPlayer && how !== 'rear') this.crime(0.35, 'fighting');
+  }
+  /** Computer riders throw a punch or kick at a rider alongside them. */
+  aiFight(r: Rider, dt: number) {
+    if (this.raceT < 3 && this.mode === 'race') return;
+    const cd = (this.aiCd.get(r) ?? rnd(0, 1)) - dt; this.aiCd.set(r, cd);
+    if (cd > 0) return;
+    const b = r.bike;
+    for (const o of this.riders) {
+      if (o === r || o.bike.fall > 0) continue;
+      const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * b.fwd.x + dz * b.fwd.z, rr = dx * -Math.cos(b.h) + dz * Math.sin(b.h);
+      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, rnd(1.2, 3)); return; }
+    }
+    this.aiCd.set(r, 0.2);
+  }
+
+  placeLoot() {
+    const types: LootType[] = ['nitro', 'turbo', 'shield', 'power'];
+    const crate = (x: number, z: number) => {
+      const g = new THREE.Group(), type = types[(Math.random() * types.length) | 0];
+      const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), lootMat(type)); g.add(box);
+      const glow = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.08, 6, 24), new THREE.MeshBasicMaterial({ color: LOOT[type].hex })); glow.rotation.x = Math.PI / 2; g.add(glow);
+      g.position.set(x, 1.6, z); scene.add(g); this.loots.push({ type, x, z, cd: 0, mesh: g });
+    };
+    const pad = (x: number, z: number, axis: 'x' | 'z') => {
+      const g = new THREE.Group(), p = new THREE.Mesh(new THREE.PlaneGeometry(9, 5), padMat()); p.rotation.x = -Math.PI / 2; g.add(p);
+      g.rotation.y = axis === 'z' ? -Math.PI / 2 : 0; g.position.set(x, 0.06, z); scene.add(g); this.pads.push({ x, z, axis, mesh: g });
+    };
+    if (this.mode === 'race') {
+      for (let k = 0; k < N; k++) {
+        const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len, rx = -uz, rz = ux, axis: 'x' | 'z' = Math.abs(dx) > Math.abs(dz) ? 'x' : 'z';
+        for (const t of [0.3, 0.7]) { const o = rnd(-R / 2 + 3, R / 2 - 3); crate(a.x + dx * t + rx * o, a.z + dz * t + rz * o); }
+        const o = (k % 2 ? 1 : -1) * Math.min(3, R / 4); pad(a.x + dx * 0.5 + rx * o, a.z + dz * 0.5 + rz * o, axis);
+      }
+    }
+    for (let i = 0; i < 14; i++) { const ax = Math.random() < 0.5, line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 25, HALF - 25), o = rnd(-R / 2 + 3, R / 2 - 3); crate(ax ? pos : line + o, ax ? line + o : pos); }
+    for (let i = 0; i < 6; i++) { const ax: 'x' | 'z' = Math.random() < 0.5 ? 'x' : 'z', line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 30, HALF - 30), o = rnd(-R / 4, R / 4); pad(ax === 'x' ? pos : line + o, ax === 'x' ? line + o : pos, ax); }
+  }
+
+  pickups(r: Rider) {
+    const b = r.bike;
+    for (const l of this.loots) {
+      if (l.cd > 0) continue;
+      if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
+        b.grant(l.type); l.cd = 14; l.mesh.visible = false;
+        if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.beep(true); }
+      }
+    }
+    for (const p of this.pads) {
+      const hx = p.axis === 'x' ? 4.5 : 2.5, hz = p.axis === 'x' ? 2.5 : 4.5;
+      if (Math.abs(p.x - b.x) < hx && Math.abs(p.z - b.z) < hz && b.padT < 0.3) { b.padT = 1.6; b.speed = Math.min(b.speed + 8, 62); if (r.isPlayer) sound.beep(true); }
+    }
+  }
+
   finish() {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     const rk = this.rank(); const t = this.raceT;
@@ -324,6 +463,12 @@ class Game {
       const lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), tm = this.phase === 'done' ? this.player.finishedAt : this.raceT;
       $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
     } else $('race').innerHTML = '<b>Free ride</b><br>Explore the city';
+    const ps: string[] = [];
+    if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);
+    if (b.shield > 0) ps.push(`<span style="color:${LOOT.shield.color}">SHIELD ${Math.ceil(b.shield)}s</span>`);
+    if (b.power > 0) ps.push(`<span style="color:${LOOT.power.color}">POWER HITS ${Math.ceil(b.power)}s</span>`);
+    if (b.padT > 0) ps.push('<span style="color:#ffb21a">BOOST PAD</span>');
+    $('powers').innerHTML = ps.join('<br>');
     const stars = Math.ceil(this.heat);
     $('heat').innerHTML = this.police && stars > 0 ? `<span style="color:#ff5a5a">${'★'.repeat(stars)}</span><span style="color:#555">${'★'.repeat(5 - stars)}</span><small>${this.bust > 0 ? 'Being arrested...' : 'Wanted: get away!'}</small>` : '';
     this.minimap();
@@ -340,6 +485,8 @@ class Game {
       g.strokeStyle = 'rgba(255,210,74,.55)'; g.lineWidth = 3; g.beginPath(); NODE.forEach((n, i) => { const x = (n.x - me.x) * s, z = (n.z - me.z) * s; i ? g.lineTo(x, z) : g.moveTo(x, z); }); g.closePath(); g.stroke();
       const n = this.nextNode(this.player); dot(n.x, n.z, '#ffd24a', 9);
     }
+    for (const l of this.loots) if (l.cd <= 0 && Math.hypot(l.x - me.x, l.z - me.z) < 170) dot(l.x, l.z, LOOT[l.type].color, 4);
+    g.fillStyle = '#ffb21a'; for (const p of this.pads) if (Math.hypot(p.x - me.x, p.z - me.z) < 170) g.fillRect((p.x - me.x) * s - 3, (p.z - me.z) * s - 3, 6, 6);
     for (const a of this.agents) if (a.kind === 'police') dot(a.x, a.z, a.mode === 'chase' ? '#ff3b3b' : '#5aa0ff', a.mode === 'chase' ? 6 : 4);
     for (const r of this.riders) if (!r.isPlayer) dot(r.bike.x, r.bike.z, '#59c1ff', 5);
     g.rotate(0); g.fillStyle = '#fff'; g.save(); g.rotate(-me.h + Math.PI); g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(-6, 7); g.closePath(); g.fill(); g.restore();

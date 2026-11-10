@@ -22,7 +22,8 @@ const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.22, 14);
 const bodyGeo = new THREE.BoxGeometry(0.34, 0.45, 1.5), tankGeo = new THREE.BoxGeometry(0.4, 0.32, 0.6), torsoGeo = new THREE.BoxGeometry(0.46, 0.7, 0.3), headGeo = new THREE.SphereGeometry(0.24, 10, 8);
 const armGeo = new THREE.BoxGeometry(0.12, 0.12, 0.55), legGeo = new THREE.BoxGeometry(0.16, 0.6, 0.18);
 
-export function makeBikeMesh(color: number, def: BikeDef = BIKES[0]): { root: THREE.Group; lean: THREE.Group; wheels: THREE.Mesh[] } {
+export interface BikeMesh { root: THREE.Group; lean: THREE.Group; wheels: THREE.Mesh[]; arms: { r: THREE.Mesh; l: THREE.Mesh }; legs: { r: THREE.Mesh; l: THREE.Mesh }; aura: THREE.Mesh }
+export function makeBikeMesh(color: number, def: BikeDef = BIKES[0]): BikeMesh {
   const root = new THREE.Group(), lean = new THREE.Group(); root.add(lean);
   const wheels: THREE.Mesh[] = [];
   for (const z of [0.85 * def.len, -0.85 * def.len]) { const w = new THREE.Mesh(wheelGeo, tyre); w.rotation.z = Math.PI / 2; w.scale.set(def.wheel, 1, def.wheel); w.position.set(0, 0.42 * def.wheel, z); lean.add(w); wheels.push(w); }
@@ -36,17 +37,25 @@ export function makeBikeMesh(color: number, def: BikeDef = BIKES[0]): { root: TH
   const bars = new THREE.Mesh(new THREE.BoxGeometry(def.wide ? 1.1 : 0.7, 0.07, 0.07), frame); bars.position.set(0, def.upright ? 1.45 : 1.2, 0.62 * def.len); lean.add(bars);
   if (def.fairing) { const fr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.55), col); fr.position.set(0, 1.05, 0.75 * def.len); fr.rotation.x = -0.35; lean.add(fr); }
   if (def.id === 'dirt') { const fe = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.6), col); fe.position.set(0, 1.25, 0.95 * def.len); fe.rotation.x = 0.25; lean.add(fe); }
+  const limbs: THREE.Mesh[][] = [];   // [right, left]; the bike faces +z, so its right side is -x
   for (const s of [-1, 1]) {
     const arm = new THREE.Mesh(armGeo, col); arm.position.set(s * 0.3, 1.5, 0.35); arm.rotation.x = 0.4; lean.add(arm);
     const leg = new THREE.Mesh(legGeo, frame); leg.position.set(s * 0.26, 0.85, -0.1); lean.add(leg);
+    limbs.push([arm, leg]);
   }
-  return { root, lean, wheels };
+  const aura = new THREE.Mesh(new THREE.SphereGeometry(1.9, 14, 10), new THREE.MeshBasicMaterial({ color: 0x66ff99, transparent: true, opacity: 0.22, depthWrite: false }));
+  aura.position.y = 1.1; aura.visible = false; root.add(aura);
+  return { root, lean, wheels, arms: { r: limbs[0][0], l: limbs[1][0] }, legs: { r: limbs[0][1], l: limbs[1][1] }, aura };
 }
 
 export class Bike {
   x = 0; z = 0; h = 0; speed = 0; lat = 0; boostLeft = 1; leanAngle = 0; boosting = false;
-  mesh: ReturnType<typeof makeBikeMesh>; crash = 0;
+  mesh: BikeMesh; crash = 0;
   skill = 1;
+  // fighting and falling
+  balance = 1; fall = 0; fallDir = 1; inv = 0; punchCd = 0; kickCd = 0; swingT = 0; swingKind: 'punch' | 'kick' = 'punch'; swingSide: 1 | -1 = 1;
+  // power-ups (seconds left)
+  turbo = 0; shield = 0; power = 0; padT = 0;
   def: BikeDef;
   constructor(color: number, def: BikeDef = BIKES[0]) { this.def = def; this.mesh = makeBikeMesh(color, def); }
   get fwd() { return { x: Math.sin(this.h), z: Math.cos(this.h) }; }
@@ -54,11 +63,15 @@ export class Bike {
   /** Moves the bike. Returns the impact strength when it hits something solid (0 otherwise). */
   step(inp: Input, dt: number): number {
     const d = this.def;
+    this.punchCd = Math.max(0, this.punchCd - dt); this.kickCd = Math.max(0, this.kickCd - dt); this.swingT = Math.max(0, this.swingT - dt);
+    this.turbo = Math.max(0, this.turbo - dt); this.shield = Math.max(0, this.shield - dt); this.power = Math.max(0, this.power - dt); this.padT = Math.max(0, this.padT - dt); this.inv = Math.max(0, this.inv - dt);
+    if (this.fall > 0) return this.stepFall(dt);
+    this.balance = Math.min(1, this.balance + dt * 0.22);
     this.boosting = inp.boost && this.boostLeft > 0.02 && inp.throttle > 0;
     if (this.boosting) this.boostLeft = Math.max(0, this.boostLeft - dt * 0.28 / d.boost); else this.boostLeft = Math.min(1, this.boostLeft + dt * 0.07);
-    const top = (this.boosting ? BOOST_SPEED * (1 + (d.boost - 1) * 0.5) : MAX_SPEED) * d.top * this.skill;
+    const top = (this.boosting ? BOOST_SPEED * (1 + (d.boost - 1) * 0.5) : MAX_SPEED) * d.top * this.skill * (this.turbo > 0 ? 1.3 : 1) * (this.padT > 0 ? 1.2 : 1);
     if (inp.throttle > 0) {
-      const a = (this.boosting ? 30 : 17) * d.accel * Math.pow(Math.max(0, 1 - this.speed / top), 0.6) + 1.5;
+      const a = (this.boosting ? 30 : 17) * d.accel * (this.turbo > 0 ? 1.5 : 1) * (this.padT > 0 ? 1.6 : 1) * Math.pow(Math.max(0, 1 - this.speed / top), 0.6) + 1.5;
       this.speed += this.speed > top ? -10 * dt : a * dt;
     } else if (inp.throttle < 0) this.speed -= (this.speed > 0 ? 32 * d.brake * (0.5 + GRIP * 0.5) : 8) * dt;
     else this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), (2.5 + Math.abs(this.speed) * 0.07) * dt);
@@ -77,7 +90,7 @@ export class Bike {
     const c = collideWorld(this, 0.8);
     if (c.hit) {
       impact = Math.max(0, -(f.x * c.nx + f.z * c.nz) * this.speed);
-      if (impact > 3) { this.speed *= impact > 12 ? 0.4 : 0.7; this.crash = Math.max(this.crash, impact); }
+      if (impact > 3) { this.speed *= impact > 12 ? (this.shield > 0 ? 0.7 : 0.4) : 0.7; this.crash = Math.max(this.crash, impact); if (impact > 12) this.hit(0.55, 0); }
       else this.speed *= 1 - 0.6 * dt;
       // slide along the wall: steer the heading a little away from it
       const side = f.x * c.nz - f.z * c.nx; this.h += clamp(side, -1, 1) * 0.5 * dt * Math.min(3, impact + 1);
@@ -88,10 +101,47 @@ export class Bike {
     return impact;
   }
 
+  /** Something hits the rider: `mag` is how much balance it takes (>= 1 knocks them off), `shove` pushes the bike sideways (positive = to its right). Returns what happened. */
+  hit(mag: number, shove: number): 'ignored' | 'hit' | 'fell' {
+    if (this.inv > 0 || this.shield > 0 || this.fall > 0) return 'ignored';
+    this.balance -= mag; this.lat += shove * 3; this.speed *= 0.93; this.inv = 0.2;
+    if (this.balance <= 0) { this.fall = 2.3; this.fallDir = shove < 0 ? -1 : 1; this.balance = 0; return 'fell'; }
+    return 'hit';
+  }
+  /** Start a punch (with the right or left hand) or a kick. */
+  swing(kind: 'punch' | 'kick', side: 1 | -1) { this.swingKind = kind; this.swingSide = side; this.swingT = kind === 'kick' ? 0.35 : 0.25; if (kind === 'punch') this.punchCd = 0.45; else this.kickCd = 0.8; }
+  grant(type: 'nitro' | 'turbo' | 'shield' | 'power') {
+    if (type === 'nitro') { this.boostLeft = 1; this.speed = Math.min(this.speed + 9, BOOST_SPEED + 4); }
+    else if (type === 'turbo') this.turbo = 6; else if (type === 'shield') this.shield = 8; else this.power = 10;
+  }
+  private stepFall(dt: number): number {
+    this.fall -= dt;
+    const sg = Math.sign(this.speed); this.speed -= sg * Math.min(Math.abs(this.speed), 15 * dt);
+    this.lat *= Math.exp(-dt * 2);
+    const f = this.fwd, sx = -Math.cos(this.h), sz = Math.sin(this.h);
+    this.x += (f.x * this.speed + sx * this.lat) * dt; this.z += (f.z * this.speed + sz * this.lat) * dt;
+    collideWorld(this, 0.8);
+    this.leanAngle += (this.fallDir * 1.5 - this.leanAngle) * Math.min(1, dt * 10);
+    if (this.fall <= 0) { this.speed = 0; this.lat = 0; this.leanAngle = 0; this.balance = 1; this.inv = 1.4; }
+    this.syncMesh(dt);
+    return 0;
+  }
+
   syncMesh(dt: number) {
     const m = this.mesh;
-    m.root.position.set(this.x, 0, this.z); m.root.rotation.y = this.h;
+    m.root.position.set(this.x, this.fall > 0 ? 0.3 : 0, this.z); m.root.rotation.y = this.h;
+    m.root.visible = this.inv <= 0 || this.fall > 0 || Math.floor(this.inv * 12) % 2 === 0;
     m.lean.rotation.z = this.leanAngle;
+    // punch / kick animation: the arm or leg swings out to the side
+    const sw = this.swingT > 0 ? Math.sin((1 - this.swingT / (this.swingKind === 'kick' ? 0.35 : 0.25)) * Math.PI) : 0;
+    for (const side of [1, -1] as const) {
+      const arm = side === 1 ? m.arms.r : m.arms.l, leg = side === 1 ? m.legs.r : m.legs.l, on = this.swingSide === side ? sw : 0, dir = side === 1 ? -1 : 1;
+      arm.rotation.set(0.4, this.swingKind === 'punch' ? dir * on * 1.3 : 0, 0); arm.position.x = dir * (0.3 + (this.swingKind === 'punch' ? on * 0.55 : 0));
+      leg.rotation.z = this.swingKind === 'kick' ? dir * -on * 1.2 : 0; leg.position.x = dir * (0.26 + (this.swingKind === 'kick' ? on * 0.5 : 0));
+    }
+    // aura for the active power-up
+    const au = m.aura; au.visible = this.shield > 0 || this.power > 0 || this.turbo > 0;
+    if (au.visible) (au.material as THREE.MeshBasicMaterial).color.setHex(this.shield > 0 ? 0x66ff99 : this.power > 0 ? 0xc77dff : 0xff6a4a);
     for (const w of m.wheels) w.rotation.x += this.speed * dt / 0.42;
   }
 }

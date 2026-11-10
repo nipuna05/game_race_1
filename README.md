@@ -20,8 +20,23 @@ npm run build
 | A D / Left Right | Steer |
 | Space | Handbrake (drift) |
 | Shift | Boost (the bar refills when you let go) |
+| Q / E | Punch with the left / right hand |
+| F | Kick |
 | R | Put the bike back on the road |
 | Esc | Menu |
+
+## Bikes and maps
+
+- **8 bikes** by category and engine size: Scooter 125cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.
+- **5 maps**: Downtown, Neon Night, Desert Highway (wide, fast), Old Town (tight streets), Snow Village (slippery).
+
+## Fighting
+
+Hit riders next to you with a punch (Q / E) or a kick (F). Each hit costs the rider balance; at zero they fall off and lose a couple of seconds. Coming up fast from behind and bumping a rider also knocks them off. Rivals fight back.
+
+## Power-ups and boost pads
+
+Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.
 
 ## Modes and options
 

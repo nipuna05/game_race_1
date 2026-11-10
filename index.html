@@ -22,7 +22,8 @@
   #race b { font: 900 34px Orbitron, system-ui; }
   #turnsign { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; pointer-events: none; }
   #turnsign.on { display: flex; } #turnsign svg { filter: drop-shadow(0 0 14px rgba(255,210,74,.85)) drop-shadow(0 5px 8px rgba(0,0,0,.65)); transition: transform .15s; }
-  #turnsign b { margin-top: 4px; padding: 5px 20px; border-radius: 10px; background: var(--glass); border: 1px solid rgba(255,210,74,.55); font: 800 26px Orbitron, system-ui; color: var(--gold); letter-spacing: .08em; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #turnsign b { margin-top: 4px; padding: 5px 20px; border-radius: 10px; background: var(--glass); border: 1px solid rgba(255,210,74,.55); font: 800 22px Orbitron, system-ui; color: var(--gold); letter-spacing: .06em; box-shadow: 0 10px 30px rgba(0,0,0,.5); white-space: nowrap; }
+  #turnsign.compact { top: 12px; } #turnsign.compact svg { display: none; }   /* a turn is close: the big sign over the road shows the arrow, only the words stay at the top */
   #turnsign.near svg { animation: tsblink .4s ease-in-out infinite alternate; } @keyframes tsblink { from { opacity: 1; transform: scale(1); } to { opacity: .45; transform: scale(1.06); } }
   #turnsign.wrong svg { filter: drop-shadow(0 0 14px rgba(255,80,80,.9)) drop-shadow(0 5px 8px rgba(0,0,0,.65)); } #turnsign.wrong svg path { fill: #ff5a5a; } #turnsign.wrong b { border-color: #ff7a7a; color: #ff9a9a; }
   #heat { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font-size: 28px; letter-spacing: .15em; text-shadow: 0 2px 8px #000; text-align: center; }

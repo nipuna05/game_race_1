@@ -127,7 +127,9 @@ class Game {
   heat = 0; bust = 0; lastBeep = 4;
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
-  guideChev: THREE.InstancedMesh | null = null; guidePos: { x: number; z: number; q: THREE.Quaternion }[] = []; guideTurns: THREE.Mesh[] = []; guideFloat: THREE.Mesh | null = null;
+  /** The modes that follow the checkpoint route (race now; more game types use it too). */
+  get routed(): boolean { return this.mode === 'race'; }
+  guideChev: THREE.InstancedMesh | null = null; guidePos: { x: number; z: number; q: THREE.Quaternion }[] = [];
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
   lives = 3; maxLives = 3; D: Diff = DIFFS.normal; fallTimes: number[] = [];
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
@@ -214,8 +216,7 @@ class Game {
     for (const p of this.pads) scene.remove(p.mesh);
     if (this.coinMesh) { scene.remove(this.coinMesh); this.coinMesh.dispose(); }
     if (this.guideChev) { scene.remove(this.guideChev); this.guideChev.dispose(); }
-    for (const g of this.guideTurns) scene.remove(g);
-    if (this.guideFloat) scene.remove(this.guideFloat);
+    if (this.guideSign) scene.remove(this.guideSign);
     scene.remove(this.beacon, this.ring);
   }
 
@@ -485,51 +486,57 @@ class Game {
     for (let i = 0; i < 6; i++) { const ax: 'x' | 'z' = this.rand() < 0.5 ? 'x' : 'z', line = Math.floor(rnd2(-K, K + 1)) * P, pos = rnd2(-HALF + 30, HALF - 30), o = rnd2(-R / 4, R / 4); pad(ax === 'x' ? pos : line + o, ax === 'x' ? line + o : pos, ax); }
   }
 
-  /** Direction marks painted on the road: glowing chevrons along the route, and a big arrow in each junction showing which way to go. */
+  /** Direction marks: glowing chevrons along the route and curving through every junction (the line to ride), and one big sign over the next junction saying which way to turn. */
+  guideSign: THREE.Mesh | null = null; signKind = ''; signTex: Record<string, THREE.CanvasTexture> = {};
+  private signTexture(kind: string): THREE.CanvasTexture {
+    if (this.signTex[kind]) return this.signTex[kind];
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d')!;
+    g.fillStyle = 'rgba(10,16,28,.94)'; g.strokeStyle = '#ffd24a'; g.lineWidth = 9;
+    if (g.roundRect) { g.beginPath(); g.roundRect(8, 8, 240, 240, 28); g.fill(); g.stroke(); } else { g.fillRect(8, 8, 240, 240); g.strokeRect(8, 8, 240, 240); }
+    g.save(); g.translate(128, 112); g.rotate(kind === 'left' ? -Math.PI / 2 : kind === 'right' ? Math.PI / 2 : 0);
+    g.fillStyle = '#ffd24a'; g.strokeStyle = '#0b1019'; g.lineWidth = 8; g.lineJoin = 'round'; g.beginPath(); g.moveTo(0, -74); g.lineTo(60, -4); g.lineTo(26, -4); g.lineTo(26, 72); g.lineTo(-26, 72); g.lineTo(-26, -4); g.lineTo(-60, -4); g.closePath(); g.stroke(); g.fill(); g.restore();
+    g.fillStyle = '#fff'; g.font = '800 34px Orbitron, system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText({ left: 'TURN LEFT', right: 'TURN RIGHT', straight: 'STRAIGHT ON', finish: 'FINISH' }[kind] ?? '', 128, 224);
+    const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4; return (this.signTex[kind] = tx);
+  }
   buildGuide() {
     const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2), up = new THREE.Vector3(0, 1, 0);
     const yaw = (ux: number, uz: number) => new THREE.Quaternion().setFromAxisAngle(up, Math.atan2(-ux, -uz)).multiply(flat);   // lay a shape (pointing +y) flat on the road, pointing along (ux, uz)
-    const chev = new THREE.Shape(); chev.moveTo(0, 1.0); chev.lineTo(1.7, -0.5); chev.lineTo(1.7, -1.4); chev.lineTo(0, 0.1); chev.lineTo(-1.7, -1.4); chev.lineTo(-1.7, -0.5); chev.closePath();
-    const mat = () => new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    for (let k = 0; k < N; k++) {
+    const chev = new THREE.Shape(); chev.moveTo(0, 1.0); chev.lineTo(1.4, -0.4); chev.lineTo(1.4, -1.2); chev.lineTo(0, 0.1); chev.lineTo(-1.4, -1.2); chev.lineTo(-1.4, -0.4); chev.closePath();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    for (let k = 0; k < N; k++) {                                                                  // along each straight
       const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len, q = yaw(ux, uz);
-      for (let t = 26; t < len - 26; t += 11) {
-        const x = a.x + ux * t, z = a.z + uz * t, along = Math.abs(ux) > 0.5 ? x : z;
-        if (Math.abs(along - Math.round(along / P) * P) < R / 2 + 2) continue;                      // keep the junctions clear for their own arrow
-        this.guidePos.push({ x, z, q });
+      for (let t = R / 2 + 8; t < len - R / 2 - 6; t += 10) this.guidePos.push({ x: a.x + ux * t, z: a.z + uz * t, q });
+    }
+    for (let k = 0; k < N; k++) {                                                                  // and through each junction, in a curve that follows the turn
+      const a = node(k - 1), c = node(k), d = node(k + 1);
+      let ux = c.x - a.x, uz = c.z - a.z, ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+      let vx = d.x - c.x, vz = d.z - c.z, vl = Math.hypot(vx, vz) || 1; vx /= vl; vz /= vl;
+      const ex = c.x - ux * R / 2, ez = c.z - uz * R / 2, fx = c.x + vx * R / 2, fz = c.z + vz * R / 2;
+      for (const t of [0.08, 0.28, 0.5, 0.72, 0.92]) {
+        const x = (1 - t) * (1 - t) * ex + 2 * (1 - t) * t * c.x + t * t * fx, z = (1 - t) * (1 - t) * ez + 2 * (1 - t) * t * c.z + t * t * fz;
+        const tx = 2 * (1 - t) * (c.x - ex) + 2 * t * (fx - c.x), tz = 2 * (1 - t) * (c.z - ez) + 2 * t * (fz - c.z), tl = Math.hypot(tx, tz) || 1;
+        this.guidePos.push({ x, z, q: yaw(tx / tl, tz / tl) });
       }
     }
-    this.guideChev = new THREE.InstancedMesh(new THREE.ShapeGeometry(chev), mat(), this.guidePos.length); this.guideChev.frustumCulled = false; scene.add(this.guideChev);
-    this.guideFloat = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape()), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, side: THREE.DoubleSide })); this.guideFloat.renderOrder = 20; scene.add(this.guideFloat);
-    const ag = new THREE.ShapeGeometry(arrowShape());
-    for (let k = 0; k < N; k++) {                                                                    // the arrow in each junction points down the next leg
-      const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1;
-      const m = new THREE.Mesh(ag, mat()); m.quaternion.copy(yaw(dx / len, dz / len)); m.position.set(a.x, 0.1, a.z); m.scale.setScalar(2); scene.add(m); this.guideTurns.push(m);
-    }
+    this.guideChev = new THREE.InstancedMesh(new THREE.ShapeGeometry(chev), mat, this.guidePos.length); this.guideChev.frustumCulled = false; scene.add(this.guideChev);
+    this.guideSign = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false })); scene.add(this.guideSign);
     this.updateGuide(0);
   }
   updateGuide(t: number) {
-    const me = this.player.bike, next = this.player.passed % N, m = new THREE.Matrix4(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    const me = this.player.bike, m = new THREE.Matrix4(), p = new THREE.Vector3(), sc = new THREE.Vector3();
     if (this.guideChev) {
       this.guidePos.forEach((g, i) => {
-        const d = Math.hypot(g.x - me.x, g.z - me.z), s = (1.25 + 0.2 * Math.sin(t * 7 - i * 0.8)) * clamp((200 - d) / 70, 0, 1);   // a pulse runs along the route; marks far away fade out
+        const d = Math.hypot(g.x - me.x, g.z - me.z), fwd = (g.x - me.x) * Math.sin(me.h) + (g.z - me.z) * Math.cos(me.h), s = (1.25 + 0.2 * Math.sin(t * 7 - i * 0.8)) * clamp((200 - d) / 70, 0, 1) * clamp((fwd - 4) / 8, 0, 1);   // a pulse runs along the route; marks far away, beside or behind you fade out
         p.set(g.x, 0.09, g.z); sc.setScalar(s); m.compose(p, g.q, sc); this.guideChev!.setMatrixAt(i, m);
       });
       this.guideChev.instanceMatrix.needsUpdate = true;
     }
-    this.guideTurns.forEach((g, k) => {
-      const isNext = k === next, mat = g.material as THREE.MeshBasicMaterial;
-      g.scale.setScalar(isNext ? 3.1 + Math.sin(t * 6) * 0.3 : 2.2); mat.opacity = isNext ? 0.95 : 0.4; mat.color.setHex(isNext ? 0xffe27a : 0xb8862a);
-    });
-    // a glowing arrow floating over the road just ahead of the bike, right where you are looking: it bends towards the turn as it gets close
-    if (this.guideFloat) {
-      const k = this.navKind, ramp = clamp((130 - this.navD) / 80, 0, 1), turn = this.navWrong ? Math.PI : k === 'left' ? ramp * Math.PI / 2 : k === 'right' ? -ramp * Math.PI / 2 : 0;
-      const ang = me.h + turn, X = new THREE.Vector3(1, 0, 0), flat = new THREE.Quaternion().setFromAxisAngle(X, -Math.PI / 2), tilt = new THREE.Quaternion().setFromAxisAngle(X, 0.65);   // tilted up so it reads as an arrow from behind
-      this.guideFloat.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-Math.sin(ang), -Math.cos(ang))).multiply(tilt).multiply(flat));
-      this.guideFloat.position.set(me.x + Math.sin(me.h) * 15, 1.5 + Math.sin(t * 4) * 0.25, me.z + Math.cos(me.h) * 15);
-      this.guideFloat.scale.setScalar(0.85 + (this.navWrong ? 0.15 : 0)); (this.guideFloat.material as THREE.MeshBasicMaterial).color.setHex(this.navWrong ? 0xff5a5a : 0xffd24a);
-      this.guideFloat.visible = this.phase !== 'done';
-    }
+    // the sign over the next junction, facing the rider coming up the road
+    const sg = this.guideSign; if (!sg) return;
+    const next = this.player.passed % N, nd = node(next), pv = node(next - 1); let ux = nd.x - pv.x, uz = nd.z - pv.z; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+    sg.position.set(nd.x + ux * (R / 2 + 3), 13 + Math.sin(t * 2) * 0.4, nd.z + uz * (R / 2 + 3)); sg.rotation.y = Math.atan2(-ux, -uz);
+    if (this.signKind !== this.navKind) { this.signKind = this.navKind; const mt = sg.material as THREE.MeshBasicMaterial; mt.map = this.signTexture(this.navKind); mt.needsUpdate = true; }
+    sg.visible = this.phase !== 'done' && !this.navWrong;
   }
 
   /** Gold coins along the route and around the roads (worth 5 each, kept when the ride ends). */
@@ -637,18 +644,21 @@ class Game {
   navKind = 'straight'; navD = 999; navWrong = false;
   navUpdate() {
     const b = this.player.bike, ts = $('turnsign');
-    if (this.mode !== 'race' || this.phase === 'done') { ts.classList.remove('on'); this.navKind = 'straight'; this.navWrong = false; return; }
+    if (!this.routed || this.phase === 'done') { ts.classList.remove('on'); this.navKind = 'straight'; this.navWrong = false; return; }
     const me = this.player, n0 = this.nextNode(me), from = node(me.passed - 1), n1 = node(me.passed + 1);
-    const dx = n0.x - b.x, dz = n0.z - b.z, d = Math.hypot(dx, dz);
-    let rel = Math.atan2(dx, dz) - b.h; while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
-    const ux = n0.x - from.x, uz = n0.z - from.z, vx = n1.x - n0.x, vz = n1.z - n0.z, cross = (ux * vz - uz * vx) / ((Math.hypot(ux, uz) || 1) * (Math.hypot(vx, vz) || 1));
+    const d = Math.hypot(n0.x - b.x, n0.z - b.z);
+    const ux = n0.x - from.x, uz = n0.z - from.z, vx = n1.x - n0.x, vz = n1.z - n0.z, vl = Math.hypot(vx, vz) || 1, cross = (ux * vz - uz * vx) / ((Math.hypot(ux, uz) || 1) * vl);
     const finishing = me.passed >= this.laps * N, kind = finishing ? 'finish' : cross < -0.5 ? 'left' : cross > 0.5 ? 'right' : 'straight';
+    // the compass arrow points at where to ride: the junction first, then (as you arrive) down the road you turn into, so it swings with the turn
+    const s = finishing ? 0 : clamp(70 - d, 0, 70), tx = n0.x + (vx / vl) * s, tz = n0.z + (vz / vl) * s;
+    let rel = Math.atan2(tx - b.x, tz - b.z) - b.h; while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
     const wrong = Math.abs(rel) > 2.3 && (Math.abs(b.speed) > 3 || this.phase === 'go' && this.raceT > 1), m = d > 100 ? Math.round(d / 10) * 10 : Math.round(d / 5) * 5;
     this.navKind = kind; this.navD = d; this.navWrong = wrong;
-    // the big arrow in the middle of the screen: the turn before it comes, and a U-turn warning when heading the wrong way
-    const show = wrong || (kind !== 'straight' && d < 260);
-    ts.classList.toggle('on', show); ts.classList.toggle('wrong', wrong); ts.classList.toggle('near', !wrong && d < 70);
-    if (show) { ($('tsarrow') as unknown as SVGElement).style.transform = `rotate(${wrong ? 180 : kind === 'left' ? -90 : kind === 'right' ? 90 : 0}deg)`; $('tsdist').textContent = wrong ? 'TURN AROUND' : kind === 'finish' ? `FINISH  ${m} m` : `${m} m`; }
+    const dir = kind === 'left' ? 'LEFT' : 'RIGHT';
+    const text = wrong ? 'TURN AROUND' : kind === 'finish' ? `FINISH IN ${m} m` : kind === 'straight' || d > 220 ? `STRAIGHT ON  ${m} m` : d < 35 ? `TURN ${dir} NOW` : `TURN ${dir} IN ${m} m`;
+    ts.classList.add('on'); ts.classList.toggle('compact', !wrong && (kind === 'left' || kind === 'right') && d < 100); ts.classList.toggle('wrong', wrong); ts.classList.toggle('near', !wrong && kind !== 'straight' && kind !== 'finish' && d < 70);
+    ($('tsarrow') as unknown as SVGElement).style.transform = `rotate(${(-rel * 180 / Math.PI).toFixed(1)}deg)`;
+    $('tsdist').textContent = text;
   }
 
   /** The whole-city map at the top: roads, the race route with numbered checkpoints, you (pulsing, with your heading), riders and police. */

@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite --host --port 5180 --strictPort",
     "build": "vite build",
     "preview": "vite preview --host",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test-env:build": "vite build --mode test --outDir dist-test",
+    "test-env:client": "vite preview --mode test --outDir dist-test --host --port 5181 --strictPort"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -6,7 +6,9 @@ A 3D browser bike race through a busy city, built with TypeScript and Three.js. 
 
 ```
 npm install
-npm run dev        # http://localhost:5173 (or the port Vite prints)
+npm run dev                # dev copy, http://localhost:5180 (updates as you edit)
+npm run test-env:build     # build a fixed test copy
+npm run test-env:client    # serve it, http://localhost:5181
 npm run typecheck
 npm run build
 ```

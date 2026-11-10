@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { K, P, R, HALF, clamp, rnd, collideWorld } from './city';
-import { truck } from './models';
+import { makeVehicle, randomTraffic } from './vehicles';
 
 export type Kind = 'car' | 'ped' | 'police';
 const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0xecf0f1, 0x27ae60, 0x7f8c8d, 0x8e44ad, 0xe67e22, 0x16a085, 0x2c3e50];
@@ -19,6 +19,7 @@ export class Agent {
   kind: Kind; mesh: THREE.Group;
   axis: 'x' | 'z' = 'x'; dir: 1 | -1 = 1; line = 0; pos = 0;           // lane following
   x = 0; z = 0; h = 0; speed = 0; max: number; radius: number;
+  seg = 0;                                                             // half the length of the straight part of the capsule that is the vehicle's collision shape
   side: 1 | -1 = 1;                                                    // which edge of the road a pedestrian walks on
   mode: 'drive' | 'chase' = 'drive';
   down = 0;                                                            // pedestrian knocked over: seconds left
@@ -35,17 +36,9 @@ export class Agent {
       m.position.y = 0.9; const hd = new THREE.Mesh(pedHead, skin); hd.position.y = 1.72; this.mesh.add(m, hd);
       this.max = rnd(1.3, 2.2); this.radius = 0.45;
     } else {
-      const col = kind === 'police' ? 0xf2f2f2 : CAR_COLORS[(Math.random() * CAR_COLORS.length) | 0];
-      const body = new THREE.Mesh(carBody, new THREE.MeshLambertMaterial({ color: col })); body.position.y = 0.75;
-      const cab = new THREE.Mesh(carCab, kind === 'police' ? glassMat : new THREE.MeshLambertMaterial({ color: col })); cab.position.set(0, 1.45, -0.2);
-      const wh = new THREE.Mesh(carWheels, wheelMat); wh.position.y = 0.3;
-      const tr = kind === 'car' && Math.random() < 0.4 ? truck((Math.random() * 4) | 0) : null;   // some of the traffic are Kenney's trucks
-      if (tr) this.mesh.add(tr); else this.mesh.add(wh, body, cab);
-      if (kind === 'police') {
-        const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.3, 4.44), new THREE.MeshLambertMaterial({ color: 0x1b2a4a })); stripe.position.y = 0.75; this.mesh.add(stripe);
-        for (const s of [-1, 1]) { const l = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({ color: s < 0 ? 0xff2222 : 0x2266ff })); l.position.set(s * 0.45, 1.95, -0.2); this.mesh.add(l); this.siren.push(l); }
-      }
-      this.max = kind === 'police' ? 13 : rnd(9, 15); this.radius = 2.2;
+      const v = makeVehicle(kind === 'police' ? 'police' : randomTraffic());
+      this.mesh.add(v.group); this.siren = v.siren;
+      this.max = rnd(v.speed[0], v.speed[1]); this.radius = v.halfWidth; this.seg = v.seg;
     }
   }
   /** Lateral distance of the lane / sidewalk line from the road centre line. */

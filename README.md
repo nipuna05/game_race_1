@@ -94,6 +94,10 @@ A very hard hit (a building or car at full speed, or a police ram), or being kno
 
 Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.
 
+## Traffic vehicles
+
+The cars on the road are built in code to look like real vehicles, with windows and pillars, wheels, grilles, lights, mirrors and number plates: sedans, hatchbacks, SUVs, taxis, vans, pickup trucks, city buses (with a route sign) and police cruisers (with a light bar). Colours are real car colours. Their collision shape follows their length, so a long bus is hit along its side instead of as a circle.
+
 ## Rewards
 
 The REWARDS tab (a red dot on its button means something is ready to claim):

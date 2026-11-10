@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { Sound } from './audio';
 import { profile, recordRace, recordRun, grant, recordBest, owns, bump, setTaskListener, type RunStats } from './profile';
 import { net } from './net';
+import { makeVehicle } from './vehicles';
 import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
 import { opt, initMenu, showHome, showPause, setTab, syncMe, MODES, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
@@ -416,7 +417,9 @@ class Game {
       const b = r.bike;
       for (const a of this.agents) {
         if (a.down > 0) continue;
-        const dx = b.x - a.x, dz = b.z - a.z; if (Math.abs(dx) > 5 || Math.abs(dz) > 5) continue;
+        // the nearest point on the vehicle's length (a long bus is hit along its side, not as a circle)
+        const along = a.seg > 0 ? clamp((b.x - a.x) * Math.sin(a.h) + (b.z - a.z) * Math.cos(a.h), -a.seg, a.seg) : 0, ax = a.x + Math.sin(a.h) * along, az = a.z + Math.cos(a.h) * along;
+        const dx = b.x - ax, dz = b.z - az; if (Math.abs(dx) > 6 || Math.abs(dz) > 6) continue;
         const d = Math.hypot(dx, dz), rr = a.radius + 0.7;
         if (d >= rr || d < 1e-4) continue;
         if (a.kind === 'ped') {
@@ -929,6 +932,7 @@ $('res-back').addEventListener('click', () => { const was = game?.mp; $('results
 $('res-again').addEventListener('click', () => { $('results').classList.remove('on'); startGame(); });
 setTaskListener((text) => toast(`Task complete: ${text}. Claim it in Rewards!`, 2800, '#3ddc84'));
 (window as any).__bump = bump;
+(window as any).__scene = scene; (window as any).__makeVehicle = makeVehicle;
 (window as any).__ui = () => ui;
 enterHome();
 preloadModels();

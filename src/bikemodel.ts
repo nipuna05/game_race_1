@@ -30,7 +30,7 @@ STYLES.vespa = STYLES.scooter;
 STYLES.chopper = { ...STYLES.cruiser, seatY: 0.6, seatZ: -0.12, wb: 1.5, wr: 0.3, bars: 'moto', exhaust: 'side' };   // rider position for Kenney's little chopper   // the Vespa is built like the scooter (rider position)
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
-function std(color: number, metal = 0.1, rough = 0.6, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
+export function std(color: number, metal = 0.1, rough = 0.6, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
   const key = `${color}|${metal}|${rough}|${JSON.stringify(extra)}`; let m = matCache.get(key);
   if (!m) { m = new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough, ...extra }); matCache.set(key, m); }
   return m;
@@ -38,9 +38,9 @@ function std(color: number, metal = 0.1, rough = 0.6, extra: THREE.MeshStandardM
 const CHROME = () => std(0xd8dce2, 1, 0.18), BLACK = () => std(0x15171b, 0.4, 0.5), RUBBER = () => std(0x0e0e10, 0, 0.95), ALLOY = () => std(0xa9afb8, 0.9, 0.3), ENGINE = () => std(0x4a4f57, 0.8, 0.4), GOLD = () => std(0xd4a017, 1, 0.25);
 
 /** Collects geometry placed in bike space, then merges it into one mesh per material. */
-class Merge {
+export class Merge {
   private parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  add(g: THREE.BufferGeometry, m: THREE.Material, mx: THREE.Matrix4) { const c = g.clone(); c.applyMatrix4(mx); (this.parts.get(m) ?? this.parts.set(m, []).get(m)!).push(c); }
+  add(g: THREE.BufferGeometry, m: THREE.Material, mx: THREE.Matrix4) { const c = g.index ? g.toNonIndexed() : g.clone(); c.applyMatrix4(mx); (this.parts.get(m) ?? this.parts.set(m, []).get(m)!).push(c); }
   ell(c: [number, number, number], r: [number, number, number], m: THREE.Material, rot: [number, number, number] = [0, 0, 0]) { this.add(new THREE.SphereGeometry(1, 14, 10), m, compose(c, r, rot)); }
   box(c: [number, number, number], s: [number, number, number], m: THREE.Material, rot: [number, number, number] = [0, 0, 0]) { this.add(new THREE.BoxGeometry(1, 1, 1), m, compose(c, s, rot)); }
   seg(a: THREE.Vector3, b: THREE.Vector3, r: number, m: THREE.Material, radial = 8) {
@@ -50,7 +50,7 @@ class Merge {
   }
   build(): THREE.Mesh[] { const out: THREE.Mesh[] = []; for (const [m, gs] of this.parts) out.push(new THREE.Mesh(mergeGeometries(gs, false)!, m)); return out; }
 }
-function compose(p: [number, number, number], s: [number, number, number], r: [number, number, number]) {
+export function compose(p: [number, number, number], s: [number, number, number], r: [number, number, number]) {
   return new THREE.Matrix4().compose(new THREE.Vector3(...p), new THREE.Quaternion().setFromEuler(new THREE.Euler(...r)), new THREE.Vector3(...s));
 }
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);

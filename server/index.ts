@@ -43,7 +43,13 @@ function leave(ws: WebSocket) {
 }
 
 const wss = new WebSocketServer({ port: PORT, maxPayload: 4096, perMessageDeflate: false });
+// heartbeat: ping every connection every 15 s and drop the ones that do not answer, so a closed laptop or a lost network frees its place in the room
+// (and the room's host moves on). It also keeps quiet lobby connections from being closed by the proxy in front of the server.
+const alive = new WeakMap<WebSocket, boolean>();
+setInterval(() => { for (const ws of wss.clients) { if (alive.get(ws) === false) { ws.terminate(); continue; } alive.set(ws, false); try { ws.ping(); } catch { /* closing */ } } }, 15000);
+
 wss.on('connection', (ws, req) => {
+  alive.set(ws, true); ws.on('pong', () => alive.set(ws, true));
   const origin = req.headers.origin;
   if (ALLOWED.length && origin && !ALLOWED.includes(origin)) { ws.close(1008, 'origin'); return; }
   const ip = String(req.socket.remoteAddress);

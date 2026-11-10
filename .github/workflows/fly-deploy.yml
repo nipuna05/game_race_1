@@ -31,4 +31,4 @@ jobs:
       - if: env.HAS_TOKEN == 'true'
         uses: superfly/flyctl-actions/setup-flyctl@master
       - if: env.HAS_TOKEN == 'true'
-        run: flyctl deploy --remote-only
+        run: flyctl deploy --remote-only --ha=false   # one machine only: rooms live in the server's memory, so every player must reach the same one

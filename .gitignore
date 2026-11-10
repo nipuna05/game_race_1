@@ -4,3 +4,6 @@ dist
 .env
 .DS_Store
 dist-test
+
+# bike models downloaded from Sketchfab / Poly: licences not confirmed yet, so they stay out of git (the game falls back to its built-in bikes)
+public/models/bikes/

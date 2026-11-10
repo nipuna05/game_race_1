@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { K, P, R, HALF, clamp, rnd, collideWorld } from './city';
+import { truck } from './models';
 
 export type Kind = 'car' | 'ped' | 'police';
 const CAR_COLORS = [0xc0392b, 0x2980b9, 0xf1c40f, 0xecf0f1, 0x27ae60, 0x7f8c8d, 0x8e44ad, 0xe67e22, 0x16a085, 0x2c3e50];
@@ -36,7 +37,8 @@ export class Agent {
       const body = new THREE.Mesh(carBody, new THREE.MeshLambertMaterial({ color: col })); body.position.y = 0.75;
       const cab = new THREE.Mesh(carCab, kind === 'police' ? glassMat : new THREE.MeshLambertMaterial({ color: col })); cab.position.set(0, 1.45, -0.2);
       const wh = new THREE.Mesh(carWheels, wheelMat); wh.position.y = 0.3;
-      this.mesh.add(wh, body, cab);
+      const tr = kind === 'car' && Math.random() < 0.4 ? truck((Math.random() * 4) | 0) : null;   // some of the traffic are Kenney's trucks
+      if (tr) this.mesh.add(tr); else this.mesh.add(wh, body, cab);
       if (kind === 'police') {
         const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.3, 4.44), new THREE.MeshLambertMaterial({ color: 0x1b2a4a })); stripe.position.y = 0.75; this.mesh.add(stripe);
         for (const s of [-1, 1]) { const l = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({ color: s < 0 ? 0xff2222 : 0x2266ff })); l.position.set(s * 0.45, 1.95, -0.2); this.mesh.add(l); this.siren.push(l); }

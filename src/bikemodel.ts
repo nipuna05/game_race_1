@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BikeDef } from './bike';
+import { fitBike } from './models';
 
 /** Builds a detailed motorbike and rider from primitives: tyres, rims or spokes, forks, frame, engine, exhaust, tank, fairings, headlight, rider.
  *  The bike faces +z, y is up; its right side is -x. Static parts are merged into a few meshes so many bikes stay cheap to draw. */
@@ -183,7 +184,8 @@ export function makeBikeMesh(color: number, def: BikeDef): BikeMesh {
     if (st.head === 'twin') for (const sx of [-1, 1]) fixed.ell([sx * 0.09, hly, hlz], [0.08, 0.06, 0.04], lens); else fixed.box([0, hly, hlz], [0.2, 0.05, 0.03], lens);
     if (st.fairing === 'hyper') { for (const sx of [-1, 1]) fixed.box([sx * 0.215, fy - 0.1, fz - 0.4], [0.012, 0.03, 0.7], std(st.neon ?? 0x9b59ff, 0, 0.3, { emissive: st.neon ?? 0x9b59ff, emissiveIntensity: 1.5 })); }
   }
-  for (const me of fixed.build()) lean.add(me);
+  const bodyParts: THREE.Object3D[] = [steer, rear];
+  for (const me of fixed.build()) { lean.add(me); bodyParts.push(me); }
 
   // ---- rider
   const suit = std(0x23262d, 0.1, 0.6), leather = std(new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.1).getHex(), 0.1, 0.55), helmet = std(def.id === 'hyper' ? 0x1a1a22 : 0xf4f4f6, 0.3, 0.25), visor = std(0x0a0c12, 0.9, 0.1), glove = std(0x101012, 0, 0.7);
@@ -208,10 +210,14 @@ export function makeBikeMesh(color: number, def: BikeDef): BikeMesh {
   lean.add(arms.r, arms.l, legs.r, legs.l);
   // grips follow the steering: put the hands' bars in the steer group already (arms are static, the small steer angle hides the gap)
 
+  // a downloaded model (when available) replaces the built-in frame, wheels and bodywork; the rider stays
+  const glb = fitBike(def.id, color);
+  if (glb) { for (const p of bodyParts) lean.remove(p); lean.add(glb); }
+
   // soft shadow under the bike, and the power-up aura
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!; const gr = g.createRadialGradient(32, 32, 4, 32, 32, 30); gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   const sh = new THREE.Mesh(new THREE.PlaneGeometry(1.1, st.wb + 1.1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false })); sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; root.add(sh);
   const aura = new THREE.Mesh(new THREE.SphereGeometry(1.9, 14, 10), new THREE.MeshBasicMaterial({ color: 0x66ff99, transparent: true, opacity: 0.22, depthWrite: false }));
   aura.position.y = 1.1; aura.visible = false; root.add(aura);
-  return { root, lean, steer, wheels: [front, rear], arms, legs, aura };
+  return { root, lean, steer, wheels: glb ? [] : [front, rear], arms, legs, aura };
 }

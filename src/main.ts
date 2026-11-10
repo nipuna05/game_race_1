@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { Sound } from './audio';
 import { profile, recordRace, recordRun, owns, type RunStats } from './profile';
 import { net } from './net';
+import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
 import { opt, initMenu, showHome, showPause, setTab, syncMe, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
@@ -687,6 +688,8 @@ net.h.results = (list: ResultRow[]) => {
 $('res-back').addEventListener('click', () => { $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab('online', true); });
 (window as any).__ui = () => ui;
 enterHome();
+preloadModels();
+onModels(() => { if (ui === 'home') { cityMap = ''; ensureCity(); buildShowcase(); } });   // the downloaded models are ready: show them
 if (new URLSearchParams(location.search).has('auto')) startGame();
 
 // ---------- main loop ----------

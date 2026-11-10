@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TOWN_BUILDINGS, getModel } from './models';
 
 /** The city is a grid: roads run along x = i*P and z = j*P; the blocks between them hold the buildings, ringed by a sidewalk. */
 export interface MapDef {
@@ -9,6 +10,7 @@ export interface MapDef {
   hMin: number; hMax: number; hDown: number; // building heights (and the downtown maximum)
   night: boolean; sun: number; hemi: number; // lighting
   grip: number; trees: 'none' | 'green' | 'snow' | 'palm'; traffic: number; roof: number;
+  kit?: 'town';                              // build the blocks from downloaded building models (Kenney)
 }
 export const MAPS: MapDef[] = [
   { id: 'downtown', name: 'Downtown', desc: 'Sunny city with tall towers in the middle. Balanced streets.', B: 56, R: 16, K: 4, sky: 0x8fbbe8, fog: [120, 420], ground: 0x2c3a2a, asphalt: 0x2b2d33, pave: 0x6b6e75, lamp: 0xffe9a8,
@@ -27,6 +29,9 @@ export const MAPS: MapDef[] = [
     pal: [['#8a6a52', '#ffe9a0', '#3c2c22'], ['#6f7f8f', '#ffe9a0', '#2a3440'], ['#a45a4a', '#ffe0a0', '#3d2420'], ['#7c8a70', '#fff0b0', '#2c3a2a']],
     hMin: 6, hMax: 20, hDown: 24, night: false, sun: 1.3, hemi: 1.3, grip: 0.55, trees: 'snow', traffic: 0.8, roof: 0xf4f8fc },
 ];
+
+MAPS.push({ id: 'town', name: 'Toy Town', desc: 'A bright, friendly little town built from Kenney building models. Easy to read, easy to love.', B: 56, R: 16, K: 4, sky: 0x9fd8ff, fog: [150, 460], ground: 0x78c85a, asphalt: 0x4d525c, pave: 0xe9e2d2, lamp: 0xfff1c8,
+  pal: [['#d9776a', '#fff3c8', '#7a3b34'], ['#6aa3d9', '#fff3c8', '#2e4a66'], ['#e0c25a', '#fff3c8', '#6a5a22']], hMin: 8, hMax: 20, hDown: 24, night: false, sun: 1.8, hemi: 1.35, grip: 1, trees: 'green', traffic: 1, roof: 0xd0d0d8, kit: 'town' });
 
 export let B = 56, R = 16, P = B + R, SW = 4, K = 4, HALF = K * P + R / 2, GRIP = 1;
 /** Switch the grid sizes to a map's. Everything that reads P, R, K, HALF sees the new values. */
@@ -115,6 +120,8 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
     return new THREE.MeshLambertMaterial(w.emissive ? { map: w.map, emissiveMap: w.emissive, emissive: 0xffffff, emissiveIntensity: 1.1 } : { map: w.map });
   });
   const roofMat = new THREE.MeshLambertMaterial({ color: mp.roof });
+  const kit = mp.kit === 'town' && TOWN_BUILDINGS.every((f) => getModel(f));
+  const kitCells: { type: number; x: number; z: number; s: number; sy: number; rot: number }[] = [];
   for (let i = -K; i < K; i++) for (let j = -K; j < K; j++) {
     const f = footprint(i, j), bw = f.x1 - f.x0 + SW * 2, bd = f.z1 - f.z0 + SW * 2;
     const slab = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.4, bd), paveMat);
@@ -123,6 +130,7 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
     const wx = (f.x1 - f.x0) / 2, wz = (f.z1 - f.z0) / 2;
     for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) {
       const w = wx - 1.2, d = wz - 1.2;
+      if (kit) { const s = Math.min(w, d) + 1.2; kitCells.push({ type: (Math.random() * TOWN_BUILDINGS.length) | 0, x: f.x0 + wx * (a + 0.5), z: f.z0 + wz * (b + 0.5), s, sy: s * (downtown ? rnd(1.1, 1.8) : rnd(0.85, 1.3)), rot: ((Math.random() * 4) | 0) * Math.PI / 2 }); continue; }
       const h = downtown ? rnd(mp.hMin * 2, mp.hDown) : rnd(mp.hMin, mp.hMax);
       const geo = new THREE.BoxGeometry(w, h, d);
       const uv = geo.attributes.uv as THREE.BufferAttribute;
@@ -137,6 +145,14 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
       group.add(mesh);
     }
   }
+  // the downloaded buildings: one instanced mesh per building type
+  if (kit) TOWN_BUILDINGS.forEach((file, ti) => {
+    const model = getModel(file)!; model.updateMatrixWorld(true); let mesh: THREE.Mesh | null = null; model.traverse((o) => { if (!mesh && (o as THREE.Mesh).isMesh) mesh = o as THREE.Mesh; });
+    const cells = kitCells.filter((k) => k.type === ti); if (!mesh || !cells.length) return;
+    const src = mesh as THREE.Mesh, im = new THREE.InstancedMesh(src.geometry, src.material, cells.length), mx = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    cells.forEach((k, n) => { q.setFromAxisAngle(up, k.rot); mx.compose(new THREE.Vector3(k.x, 0.4, k.z), q, new THREE.Vector3(k.s, k.sy, k.s)).multiply(src.matrixWorld); im.setMatrixAt(n, mx); });
+    im.frustumCulled = false; group.add(im);
+  });
   // street lights on the corners of each intersection
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x1c1f26 }), lampMat = new THREE.MeshBasicMaterial({ color: mp.lamp });
   const nLamps = (2 * K + 1) * (2 * K + 1) * 2;

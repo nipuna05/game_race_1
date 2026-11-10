@@ -36,6 +36,12 @@ npm run build
 
 Hit riders next to you with a punch (Q / E) or a kick (F). Each hit costs the rider balance; at zero they fall off and lose a couple of seconds. Coming up fast from behind and bumping a rider also knocks them off. Rivals fight back.
 
+## Profile, coins and the bike collection
+
+- **Profile** (saved in your browser): name, level and XP, career stats (races, wins, podiums, distance, top speed, riders knocked off, falls, wrecks, crates), favourite bike, best time per map and your last races.
+- **Coins:** gold coins lie along the race route and around the roads (5 each). You also earn coins for finishing a race (more for a higher place and a bigger field) and 15 for each rider you knock off.
+- **Bike collection:** Scooter and Street are yours from the start. Buy the rest in the Garage: Enduro 800, Sport 1500, Cafe Racer 2200, Cruiser 3000, Superbike 4000, Hyperbike 7000. Up to 11 rival bots in a race.
+
 ## Wrecks and respawns
 
 A very hard hit (a building or car at full speed, or a police ram), or being knocked off three times within 20 seconds, wrecks the bike. You get Respawn, Retry or Main menu. In a race you have 3 respawns (hearts on the HUD); each respawn puts you back at the last checkpoint for +8 s and clears your power-ups. With none left it is a DNF. Free ride has unlimited respawns.

@@ -6,16 +6,16 @@ export interface Input { throttle: number; steer: number; hand: boolean; boost: 
 export const MAX_SPEED = 40, BOOST_SPEED = 56;
 
 /** The bikes you can ride. Numbers are multipliers on the base feel; wheel / len / color change the look. */
-export interface BikeDef { id: string; category: string; cc: number; name: string; desc: string; top: number; accel: number; turn: number; brake: number; boost: number; wheel: number; len: number; color: number; fairing?: boolean; upright?: number; wide?: boolean }
+export interface BikeDef { id: string; category: string; cc: number; price: number; name: string; desc: string; top: number; accel: number; turn: number; brake: number; boost: number; wheel: number; len: number; color: number; fairing?: boolean; upright?: number; wide?: boolean }
 export const BIKES: BikeDef[] = [
-  { id: 'scooter', category: 'Scooter', cc: 125, name: 'Scooter', desc: 'Slow, but turns and stops on a coin. Great in traffic.', top: 0.72, accel: 1.2, turn: 1.45, brake: 1.3, boost: 0.6, wheel: 0.7, len: 0.8, color: 0x2ecc71, upright: 1 },
-  { id: 'street', category: 'Naked', cc: 400, name: 'Street', desc: 'Balanced all-rounder.', top: 1, accel: 1, turn: 1, brake: 1, boost: 1, wheel: 1, len: 1, color: 0xffd24a },
-  { id: 'dirt', category: 'Off-road', cc: 450, name: 'Enduro', desc: 'Light and punchy with a tall frame. Quick to turn, lower top speed.', top: 0.88, accel: 1.25, turn: 1.25, brake: 1.1, boost: 0.9, wheel: 1.3, len: 1.05, color: 0xff7a1a, upright: 1 },
-  { id: 'sport', category: 'Sport', cc: 600, name: 'Sport', desc: 'Fast and sharp, but twitchy at speed.', top: 1.12, accel: 1.15, turn: 1.1, brake: 1.1, boost: 1, wheel: 0.95, len: 1.05, color: 0xe74c3c, fairing: true },
-  { id: 'classic', category: 'Classic', cc: 750, name: 'Cafe Racer', desc: 'Good looks, good balance, a bit more power than the Street.', top: 1.06, accel: 1.05, turn: 1.05, brake: 1.05, boost: 1, wheel: 1.05, len: 1.1, color: 0x8b5a2b },
-  { id: 'super', category: 'Superbike', cc: 1000, name: 'Superbike', desc: 'Very high top speed and a big boost. Hard to turn.', top: 1.25, accel: 1.1, turn: 0.82, brake: 1.15, boost: 1.35, wheel: 1.05, len: 1.2, color: 0x3498db, fairing: true },
-  { id: 'cruiser', category: 'Cruiser', cc: 1200, name: 'Cruiser', desc: 'Heavy and stable. Slow to pick up speed.', top: 0.95, accel: 0.75, turn: 0.85, brake: 0.9, boost: 0.8, wheel: 1.1, len: 1.3, color: 0x2c3e50, upright: 1, wide: true },
-  { id: 'hyper', category: 'Hyperbike', cc: 1400, name: 'Hyperbike', desc: 'The fastest of all with a huge boost. Wild to control: for experts.', top: 1.38, accel: 1.3, turn: 0.7, brake: 1.2, boost: 1.55, wheel: 1.0, len: 1.25, color: 0x9b59b6, fairing: true },
+  { id: 'scooter', category: 'Scooter', cc: 125, price: 0, name: 'Scooter', desc: 'Slow, but turns and stops on a coin. Great in traffic.', top: 0.72, accel: 1.2, turn: 1.45, brake: 1.3, boost: 0.6, wheel: 0.7, len: 0.8, color: 0x2ecc71, upright: 1 },
+  { id: 'street', category: 'Naked', cc: 400, price: 0, name: 'Street', desc: 'Balanced all-rounder.', top: 1, accel: 1, turn: 1, brake: 1, boost: 1, wheel: 1, len: 1, color: 0xffd24a },
+  { id: 'dirt', category: 'Off-road', cc: 450, price: 800, name: 'Enduro', desc: 'Light and punchy with a tall frame. Quick to turn, lower top speed.', top: 0.88, accel: 1.25, turn: 1.25, brake: 1.1, boost: 0.9, wheel: 1.3, len: 1.05, color: 0xff7a1a, upright: 1 },
+  { id: 'sport', category: 'Sport', cc: 600, price: 1500, name: 'Sport', desc: 'Fast and sharp, but twitchy at speed.', top: 1.12, accel: 1.15, turn: 1.1, brake: 1.1, boost: 1, wheel: 0.95, len: 1.05, color: 0xe74c3c, fairing: true },
+  { id: 'classic', category: 'Classic', cc: 750, price: 2200, name: 'Cafe Racer', desc: 'Good looks, good balance, a bit more power than the Street.', top: 1.06, accel: 1.05, turn: 1.05, brake: 1.05, boost: 1, wheel: 1.05, len: 1.1, color: 0x8b5a2b },
+  { id: 'super', category: 'Superbike', cc: 1000, price: 4000, name: 'Superbike', desc: 'Very high top speed and a big boost. Hard to turn.', top: 1.25, accel: 1.1, turn: 0.82, brake: 1.15, boost: 1.35, wheel: 1.05, len: 1.2, color: 0x3498db, fairing: true },
+  { id: 'cruiser', category: 'Cruiser', cc: 1200, price: 3000, name: 'Cruiser', desc: 'Heavy and stable. Slow to pick up speed.', top: 0.95, accel: 0.75, turn: 0.85, brake: 0.9, boost: 0.8, wheel: 1.1, len: 1.3, color: 0x2c3e50, upright: 1, wide: true },
+  { id: 'hyper', category: 'Hyperbike', cc: 1400, price: 7000, name: 'Hyperbike', desc: 'The fastest of all with a huge boost. Wild to control: for experts.', top: 1.38, accel: 1.3, turn: 0.7, brake: 1.2, boost: 1.55, wheel: 1.0, len: 1.25, color: 0x9b59b6, fairing: true },
 ];
 
 export { makeBikeMesh, type BikeMesh };

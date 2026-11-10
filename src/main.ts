@@ -4,7 +4,8 @@ import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Sound } from './audio';
-import { opt, initMenu, showHome, showPause, mapDef, bikeDef, bikeColor, loadBest, saveBest, fmt } from './menu';
+import { profile, recordRace, recordRun, owns, type RunStats } from './profile';
+import { opt, initMenu, showHome, showPause, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QS = new URLSearchParams(location.search);
@@ -92,6 +93,7 @@ function padMat(): THREE.MeshBasicMaterial {
   return (padMatCache = new THREE.MeshBasicMaterial({ map: tx, transparent: true }));
 }
 
+const BOT_NAMES = ['Blaze', 'Viper', 'Rocket', 'Nitro', 'Ghost', 'Turbo', 'Rogue', 'Drift', 'Hawk', 'Storm', 'Maverick', 'Bolt'];
 interface Rider { bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean }
 
 class Game {
@@ -103,16 +105,18 @@ class Game {
   placed = 0; camPos = new THREE.Vector3();
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
   lives = 3; fallTimes: number[] = [];
+  coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
+  st: RunStats = { dist: 0, top: 0, ko: 0, fell: 0, wrecks: 0, busted: 0, ped: 0, loot: 0, coins: 0, sec: 0 }; committed = false; resultDone = false;
 
   constructor() {
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
-    this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: 'You', lane: 0, isPlayer: true };
+    this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
     if (this.mode === 'race') {
       const cols = [0x3498db, 0xe74c3c, 0x2ecc71, 0x9b59b6, 0xe67e22];
       for (let i = 0; i < Number(opt.rivals); i++) {
         const rd = opt.field === 'mixed' ? BIKES[(Math.random() * BIKES.length) | 0] : mine;
-        const r: Rider = { bike: new Bike(cols[i % cols.length], rd), passed: 0, finishedAt: 0, name: `Rider ${i + 1}`, lane: rnd(2, 4.5), isPlayer: false };
+        const r: Rider = { bike: new Bike(cols[i % cols.length], rd), passed: 0, finishedAt: 0, name: BOT_NAMES[i % BOT_NAMES.length], lane: rnd(2, 4.5), isPlayer: false };
         r.bike.skill = rnd(0.9, 0.99); scene.add(r.bike.mesh.root); this.riders.push(r);
       }
     }
@@ -124,7 +128,7 @@ class Game {
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(R / 2 - 1.5, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
     this.ring.rotation.x = Math.PI / 2; this.ring.position.y = 0.4;
     if (this.mode === 'race') scene.add(this.beacon, this.ring);
-    this.placeLoot();
+    this.placeLoot(); this.placeCoins();
     this.resetStart();
   }
 
@@ -133,10 +137,12 @@ class Game {
   }
 
   dispose() {
+    this.commit();
     for (const r of this.riders) scene.remove(r.bike.mesh.root);
     for (const a of this.agents) scene.remove(a.mesh);
     for (const l of this.loots) scene.remove(l.mesh);
     for (const p of this.pads) scene.remove(p.mesh);
+    if (this.coinMesh) { scene.remove(this.coinMesh); this.coinMesh.dispose(); }
     scene.remove(this.beacon, this.ring);
   }
 
@@ -181,6 +187,7 @@ class Game {
   update(dt: number) {
     this.t += dt;
     const me = this.player.bike;
+    this.st.dist += Math.abs(me.speed) * dt; this.st.top = Math.max(this.st.top, Math.abs(me.speed) * 3.6); this.st.sec += dt;
     if (this.phase === 'count') {
       this.countT -= dt; const n = Math.ceil(this.countT);
       if (n !== this.lastBeep && n > 0) { this.lastBeep = n; toast(String(n), 900, '#ffd24a'); sound.beep(false); }
@@ -204,8 +211,7 @@ class Game {
       const impact = b.step(inp, dt);
       if (!wasFallen && b.fall > 0 && r.isPlayer) {
         toast('You fell off! Getting up...', 1600, '#ffb36b');
-        this.fallTimes.push(this.t); this.fallTimes = this.fallTimes.filter((x) => this.t - x < 20);
-        if (this.fallTimes.length >= 3) { this.wreck('Knocked off three times in a row'); return; }
+        if (this.playerFell()) return;
       }
       if (r.isPlayer && impact > 22) { this.wreck('Hit something at full speed'); return; }
       if (live && b.fall <= 0) this.pickups(r);
@@ -258,6 +264,8 @@ class Game {
       if (closest < 5 && me.speed < 12 && chasers > 0) { this.bust += dt; if (this.bust > 2) this.busted(); } else this.bust = Math.max(0, this.bust - dt);
     }
     this.collideAgents(dt);
+    if (this.player.bike.fall <= 0) this.collectCoins();
+    this.spinCoins();
     for (const l of this.loots) {
       if (l.cd > 0) { l.cd -= dt; if (l.cd <= 0) l.mesh.visible = true; }
       l.mesh.rotation.y += dt * 2.2; l.mesh.position.y = 1.6 + Math.sin(this.t * 3 + l.x) * 0.25;
@@ -279,7 +287,7 @@ class Game {
   }
   endChase() { for (const a of this.agents) if (a.mode === 'chase') a.placeOnRoad(this.player.bike, 140); this.bust = 0; }
   busted() {
-    toast('BUSTED! +10 s', 2500, '#ff6b6b'); this.penalty += 10; this.raceT += 10; this.heat = 0; this.endChase(); this.bust = 0;
+    this.st.busted++; toast('BUSTED! +10 s', 2500, '#ff6b6b'); this.penalty += 10; this.raceT += 10; this.heat = 0; this.endChase(); this.bust = 0;
     const b = this.player.bike, back = this.mode === 'race' ? node(this.player.passed - 1) : { x: 0, z: 0 };
     b.x = back.x; b.z = back.z; b.speed = 0; b.lat = 0;
     if (this.mode === 'race') { const to = node(this.player.passed); b.h = Math.atan2(to.x - back.x, to.z - back.z); } this.resetPlayer();
@@ -296,7 +304,7 @@ class Game {
         if (a.kind === 'ped') {
           if (Math.abs(b.speed) > 4) {
             const f = b.fwd; a.knock(f.x * b.speed * 0.8 + rnd(-2, 2), f.z * b.speed * 0.8 + rnd(-2, 2)); b.speed *= 0.93;
-            if (r.isPlayer) { this.penalty += 2; this.raceT += this.mode === 'race' ? 2 : 0; toast('Watch out! +2 s', 1000, '#ffb36b'); this.crime(0.8, 'hit a pedestrian'); sound.thump(6); }
+            if (r.isPlayer) { this.st.ped++; this.penalty += 2; this.raceT += this.mode === 'race' ? 2 : 0; toast('Watch out! +2 s', 1000, '#ffb36b'); this.crime(0.8, 'hit a pedestrian'); sound.thump(6); }
           }
           continue;
         }
@@ -338,6 +346,8 @@ class Game {
     else { const px = -Math.cos(f.h) * side, pz = Math.sin(f.h) * side; shove = px * -Math.cos(t.h) + pz * Math.sin(t.h); if (how === 'punch' || how === 'kick') { t.x += px * 0.6; t.z += pz * 0.6; } }
     const res = t.hit(mag, clamp(shove, -1, 1) * (how === 'kick' ? 1.6 : 1));
     if (how === 'rear') f.speed *= 0.92;
+    if (from.isPlayer && res === 'fell') this.st.ko++;
+    if (to.isPlayer && res === 'fell') this.playerFell();
     if (res === 'ignored') { if (from.isPlayer || to.isPlayer) toast(to.bike.shield > 0 ? 'Shield blocked it!' : '', 600, '#8affb0'); return; }
     if (from.isPlayer || to.isPlayer) {
       if (res === 'fell') sound.fall(); else sound.punch();
@@ -383,12 +393,35 @@ class Game {
     for (let i = 0; i < 6; i++) { const ax: 'x' | 'z' = Math.random() < 0.5 ? 'x' : 'z', line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 30, HALF - 30), o = rnd(-R / 4, R / 4); pad(ax === 'x' ? pos : line + o, ax === 'x' ? line + o : pos, ax); }
   }
 
+  /** Gold coins along the route and around the roads (worth 5 each, kept when the ride ends). */
+  placeCoins() {
+    const run = (x: number, z: number, dx: number, dz: number, n: number) => { for (let i = 0; i < n; i++) this.coinPos.push({ x: x + dx * i * 4.5, z: z + dz * i * 4.5, got: false }); };
+    if (this.mode === 'race') for (let k = 0; k < N; k++) {
+      const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len;
+      for (const f of [0.18, 0.5, 0.82]) { const o = rnd(-R / 2 + 3, R / 2 - 3); run(a.x + dx * f - ux * 12 - uz * o, a.z + dz * f - uz * 12 + ux * o, ux, uz, 6); }
+    }
+    for (let i = 0; i < 10; i++) { const ax = Math.random() < 0.5, line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 40, HALF - 60), o = rnd(-R / 2 + 3, R / 2 - 3); run(ax ? pos : line + o, ax ? line + o : pos, ax ? 1 : 0, ax ? 0 : 1, 5); }
+    const geo = new THREE.CylinderGeometry(0.6, 0.6, 0.12, 18); geo.rotateZ(Math.PI / 2);
+    this.coinMesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.9, roughness: 0.25, emissive: 0x6a4a00, emissiveIntensity: 0.7 }), this.coinPos.length);
+    this.coinMesh.frustumCulled = false; scene.add(this.coinMesh); this.spinCoins();
+  }
+  private spinCoins() {
+    if (!this.coinMesh) return; const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    this.coinPos.forEach((c, i) => { q.setFromAxisAngle(up, this.t * 3 + i * 0.5); p.set(c.x, 1.2 + Math.sin(this.t * 3 + i) * 0.12, c.z); s.setScalar(c.got ? 0 : 1); m.compose(p, q, s); this.coinMesh!.setMatrixAt(i, m); });
+    this.coinMesh.instanceMatrix.needsUpdate = true;
+  }
+  collectCoins() {
+    const b = this.player.bike; let got = 0;
+    for (const c of this.coinPos) if (!c.got && Math.abs(c.x - b.x) < 2.4 && Math.abs(c.z - b.z) < 2.4) { c.got = true; got++; }
+    if (got) { this.st.coins += got * 5; sound.coin(); }
+  }
+
   pickups(r: Rider) {
     const b = r.bike;
     for (const l of this.loots) {
       if (l.cd > 0) continue;
       if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
-        b.grant(l.type); l.cd = 14; l.mesh.visible = false;
+        b.grant(l.type); l.cd = 14; l.mesh.visible = false; if (r.isPlayer) this.st.loot++;
         if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.loot(); }
       }
     }
@@ -398,10 +431,21 @@ class Game {
     }
   }
 
+  /** The player came off the bike. Returns true when that was the third time in 20 seconds and the bike is wrecked. */
+  playerFell(): boolean {
+    this.st.fell++; this.fallTimes.push(this.t); this.fallTimes = this.fallTimes.filter((x) => this.t - x < 20);
+    if (this.fallTimes.length >= 3) { this.wreck('Knocked off three times in a row'); return true; }
+    return false;
+  }
+  /** Adds this ride's stats to the profile (once). */
+  commit() { if (this.committed) return; this.committed = true; if (this.st.sec > 3) recordRun(this.st, opt.bike); }
+
   /** The bike is wrecked: freeze the game and offer to respawn (while you have respawns left), retry or leave. */
   wreck(reason: string) {
     if (ui !== 'play' || this.phase === 'done') return;
     const race = this.mode === 'race', out = race && this.lives <= 0;
+    this.st.wrecks++;
+    if (out && !this.resultDone) { this.resultDone = true; recordRace({ map: opt.map, bike: opt.bike, pos: this.riders.length, of: this.riders.length, time: this.raceT, dnf: true }); }
     ui = 'wreck'; sound.engine(false); sound.fall(); flash();
     $('w-title').textContent = out ? 'DNF' : 'WRECKED';
     $('w-why').textContent = out ? `${reason}. You are out of respawns.` : reason;
@@ -430,6 +474,7 @@ class Game {
     const rk = this.rank(); const t = this.raceT;
     const best = loadBest(); let note = '';
     if (!best || t < best) { saveBest(t); note = '  New best!'; }
+    if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false }); note += `  +${rr.xp} XP  +${rr.coins} coins${rr.levelUp ? '  LEVEL UP!' : ''}`; }
     sound.fanfare();
     toast(`Finished ${rk}${['st', 'nd', 'rd'][rk - 1] ?? 'th'}  ${fmt(t)}${note}`, 6000, '#ffd24a');
   }
@@ -453,8 +498,8 @@ class Game {
     ($('boostfill') as HTMLElement).style.width = `${Math.round(b.boostLeft * 100)}%`;
     if (this.mode === 'race') {
       const lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), tm = this.phase === 'done' ? this.player.finishedAt : this.raceT;
-      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(3 - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
-    } else $('race').innerHTML = '<b>Free ride</b><br>Explore the city';
+      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span> &nbsp;<span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(3 - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
+    } else $('race').innerHTML = `<b>Free ride</b><br>Explore the city<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span>`;
     const ps: string[] = [];
     if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);
     if (b.shield > 0) ps.push(`<span style="color:${LOOT.shield.color}">SHIELD ${Math.ceil(b.shield)}s</span>`);
@@ -505,7 +550,7 @@ function ensureCity() {
 let showBike: Bike | null = null; let plinth: THREE.Group | null = null; let homeTab = 'play'; let camR = 14, camHgt = 4.5, homeT = 0;
 function buildShowcase() {
   if (showBike) scene.remove(showBike.mesh.root); if (plinth) scene.remove(plinth);
-  const def = bikeDef(); showBike = new Bike(bikeColor(), def); showBike.x = 0; showBike.z = 0; showBike.syncMesh(0); showBike.mesh.root.position.y = 0.2; scene.add(showBike.mesh.root);
+  const def = previewDef(); showBike = new Bike(bikeColor(), def); showBike.x = 0; showBike.z = 0; showBike.syncMesh(0); showBike.mesh.root.position.y = 0.2; scene.add(showBike.mesh.root);
   plinth = new THREE.Group();
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 0.2, 40), new THREE.MeshLambertMaterial({ color: 0x1a2030 }));
   const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.09, 8, 60), new THREE.MeshBasicMaterial({ color: 0xffd24a })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.12;
@@ -529,6 +574,7 @@ function setPause(on: boolean) { ui = on ? 'pause' : 'play'; showPause(on); soun
 
 function startGame() {
   game?.dispose();
+  if (!owns(opt.bike)) opt.bike = 'street';
   ensureCity(); buildRoute();
   if (showBike) { scene.remove(showBike.mesh.root); showBike = null; } if (plinth) { scene.remove(plinth); plinth = null; }
   camera.clearViewOffset(); camera.fov = 65; camera.updateProjectionMatrix();
@@ -549,6 +595,7 @@ initMenu({
 $('w-respawn').addEventListener('click', () => game?.respawn());
 $('w-retry').addEventListener('click', () => { $('wreck').classList.remove('on'); startGame(); });
 $('w-main').addEventListener('click', () => { $('wreck').classList.remove('on'); game?.dispose(); game = null; enterHome(); });
+addEventListener('pagehide', () => game?.commit());
 (window as any).__ui = () => ui;
 enterHome();
 if (new URLSearchParams(location.search).has('auto')) startGame();

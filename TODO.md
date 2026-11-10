@@ -12,6 +12,8 @@
 
 - Realistic bike models, home page, music and sound, wrecks and respawns
 
+- Profile (name, level, stats), coins, bike collection, up to 11 rivals
+
 ## Next
 - Multiplayer (online rooms; same idea as the Fight game: one shared simulation, a Node `ws` server)
 - Traffic lights and pedestrian crossings

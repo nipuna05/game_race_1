@@ -92,6 +92,7 @@ export class Sound {
     if (!this.ctx) return; const t = this.ctx.currentTime; this.thump(14);
     this.hit(t + 0.05, 0.9, 0.18, 'bandpass', 1400, this.sfxG, 1.5); this.tone('sawtooth', 220, t, 0.8, 0.07, this.sfxG, 50, 900);
   }
+  coin() { if (!this.ctx) return; const t = this.ctx.currentTime; this.tone('sine', 1320, t, 0.09, 0.07, this.sfxG); this.tone('sine', 1760, t + 0.06, 0.14, 0.07, this.sfxG); }
   loot() { if (!this.ctx) return; const t = this.ctx.currentTime; [660, 880, 1320, 1760].forEach((f, i) => this.tone('square', f, t + i * 0.06, 0.12, 0.07, this.sfxG, undefined, 5000)); }
   pad() { if (!this.ctx) return; const t = this.ctx.currentTime; this.tone('sawtooth', 200, t, 0.5, 0.1, this.sfxG, 1100, 3000); this.hit(t, 0.5, 0.12, 'highpass', 2000, this.sfxG); }
   beep(high: boolean) { if (!this.ctx) return; const t = this.ctx.currentTime; this.tone('sine', high ? 880 : 440, t, 0.25, 0.14, this.sfxG); }

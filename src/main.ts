@@ -3,6 +3,7 @@ import { buildCity, configure, MAPS, P, R, K, HALF, rnd, clamp, type City, type 
 import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { Sound } from './audio';
+import { opt, initMenu, showHome, showPause, mapDef, bikeDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QS = new URLSearchParams(location.search);
@@ -22,44 +23,6 @@ const headlight = new THREE.PointLight(0xfff0d0, 0, 60, 1.4); scene.add(headligh
 const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
 addEventListener('resize', resize); resize();
 
-// ---------- settings (menu) ----------
-const savedBike = (() => { try { return localStorage.getItem('bikerace.bike.v1') || 'street'; } catch { return 'street'; } })();
-const opt: Record<string, string> = { map: (() => { try { return localStorage.getItem('bikerace.map.v1') || 'downtown'; } catch { return 'downtown'; } })(), bike: savedBike, field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
-document.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
-  seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-    seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); opt[seg.dataset.k!] = b.dataset.v!;
-  }));
-});
-for (const k of Object.keys(opt)) if (QS.has(k)) {   // ?mode=free&police=0&traffic=2 ... for quick tests
-  opt[k] = QS.get(k)!; document.querySelectorAll<HTMLElement>(`.seg[data-k=${k}] button`).forEach((b) => b.classList.toggle('on', b.dataset.v === opt[k]));
-}
-const mapSeg = document.querySelector<HTMLElement>('.seg[data-k=map]')!;
-MAPS.forEach((m) => { const el = document.createElement('button'); el.dataset.v = m.id; el.textContent = m.name; mapSeg.appendChild(el); });
-const pickMap = (id: string) => {
-  const m = MAPS.find((x) => x.id === id) ?? MAPS[0]; opt.map = m.id;
-  mapSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', (x as HTMLElement).dataset.v === m.id));
-  $('mapinfo').innerHTML = `<b>${m.name}</b> ${m.desc}`; showBest();
-  try { localStorage.setItem('bikerace.map.v1', m.id); } catch { /* ignore */ }
-};
-mapSeg.addEventListener('click', (e) => { const v = (e.target as HTMLElement).dataset?.v; if (v) pickMap(v); });
-const bikeSeg = document.querySelector<HTMLElement>('.seg[data-k=bike]')!;
-BIKES.forEach((b) => { const el = document.createElement('button'); el.dataset.v = b.id; el.textContent = `${b.name} ${b.cc}cc`; bikeSeg.appendChild(el); });
-const pickBike = (id: string) => {
-  const b = BIKES.find((x) => x.id === id) ?? BIKES[0]; opt.bike = b.id;
-  bikeSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', (x as HTMLElement).dataset.v === b.id));
-  const bar = (v: number, lo: number, hi: number) => `<i style="width:${Math.round(clamp((v - lo) / (hi - lo), 0.08, 1) * 100)}%"></i>`;
-  $('bikeinfo').innerHTML = `<b>${b.name}</b> <span style="color:#8fb0d0">${b.category} class &middot; ${b.cc} cc</span><br>${b.desc}<div class="stats"><span>Speed${bar(b.top, 0.6, 1.3)}</span><span>Pickup${bar(b.accel, 0.6, 1.3)}</span><span>Handling${bar(b.turn, 0.7, 1.5)}</span><span>Boost${bar(b.boost, 0.5, 1.4)}</span></div>`;
-  try { localStorage.setItem('bikerace.bike.v1', b.id); } catch { /* ignore */ }
-};
-bikeSeg.addEventListener('click', (e) => { const v = (e.target as HTMLElement).dataset?.v; if (v) pickBike(v); });
-pickBike(opt.bike);
-const bestKey = () => `bikerace.best.v1.${opt.map}`;
-const loadBest = (): number => { try { return Number(localStorage.getItem(bestKey())) || 0; } catch { return 0; } };
-const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-const showBest = () => { const b = loadBest(); $('best').textContent = b ? `Best race time on ${mapDef().name}: ${fmt(b)}` : ''; };
-const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
-pickMap(opt.map);
-
 // ---------- route ----------
 // the race route is a loop of junctions that fits the map's size: a ring with two detours through the middle
 let NODE: { x: number; z: number }[] = [], N = 8;
@@ -73,14 +36,16 @@ const node = (n: number) => NODE[((n % N) + N) % N];
 // ---------- input ----------
 const keys = new Set<string>();
 const sound = new Sound();
+let ui: 'home' | 'play' | 'pause' = 'home';
+addEventListener('pointerdown', () => { sound.start(); $('sndhint').style.display = 'none'; });
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  keys.add(e.code); sound.start();
-  if (game && !menuOpen && !e.repeat) {
+  keys.add(e.code); sound.start(); $('sndhint').style.display = 'none';
+  if (ui === 'play' && game && !e.repeat) {
     if (e.code === 'KeyQ') game.attack(game.player, 'punch', -1); else if (e.code === 'KeyE') game.attack(game.player, 'punch', 1); else if (e.code === 'KeyF') game.attack(game.player, 'kick');
   }
-  if (e.code === 'Escape' && game) toggleMenu();
-  if (e.code === 'KeyR' && game && !menuOpen) game.resetPlayer();
+  if (e.code === 'Escape') { if (ui === 'play') setPause(true); else if (ui === 'pause') setPause(false); }
+  if (e.code === 'KeyR' && ui === 'play' && game) game.resetPlayer();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -89,15 +54,6 @@ const readInput = (): Input => ({
   steer: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
   hand: keys.has('Space'), boost: keys.has('ShiftLeft') || keys.has('ShiftRight'),
 });
-
-// ---------- menu ----------
-let menuOpen = true;
-function toggleMenu(force?: boolean) {
-  menuOpen = force ?? !menuOpen;
-  $('menu').classList.toggle('off', !menuOpen);
-  $('go').textContent = game ? 'Restart with these settings' : 'Start';
-}
-$('go').addEventListener('click', () => { sound.start(); startGame(); });
 
 // ---------- the game ----------
 const toast = (msg: string, ms = 1600, color = '#fff') => {
@@ -147,7 +103,7 @@ class Game {
 
   constructor() {
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
-    this.player = { bike: new Bike(mine.color, mine), passed: 0, finishedAt: 0, name: 'You', lane: 0, isPlayer: true };
+    this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: 'You', lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
     if (this.mode === 'race') {
       const cols = [0x3498db, 0xe74c3c, 0x2ecc71, 0x9b59b6, 0xe67e22];
@@ -298,7 +254,7 @@ class Game {
       if (l.cd > 0) { l.cd -= dt; if (l.cd <= 0) l.mesh.visible = true; }
       l.mesh.rotation.y += dt * 2.2; l.mesh.position.y = 1.6 + Math.sin(this.t * 3 + l.x) * 0.25;
     }
-    sound.update(me.speed, me.boosting, closest < 90 && this.heat > 0 ? clamp(1 - closest / 90, 0.2, 1) : 0);
+    sound.update(me.speed, me.boosting, closest < 90 && this.heat > 0 ? clamp(1 - closest / 90, 0.2, 1) : 0, me.fall > 0 ? 0 : clamp(Math.abs(me.lat) / 5, 0, 1) * Math.min(1, Math.abs(me.speed) / 15));
     this.updateCamera(dt, false);
     if (mapDef().night) { const f = me.fwd; headlight.position.set(me.x + f.x * 6, 5, me.z + f.z * 6); }
     // checkpoint beacon
@@ -376,7 +332,7 @@ class Game {
     if (how === 'rear') f.speed *= 0.92;
     if (res === 'ignored') { if (from.isPlayer || to.isPlayer) toast(to.bike.shield > 0 ? 'Shield blocked it!' : '', 600, '#8affb0'); return; }
     if (from.isPlayer || to.isPlayer) {
-      sound.thump(res === 'fell' ? 10 : 5);
+      if (res === 'fell') sound.fall(); else sound.punch();
       if (res === 'fell') toast(from.isPlayer ? `${to.name} is down!` : `${from.name} knocked you off!`, 1400, from.isPlayer ? '#8affb0' : '#ff8a8a');
       else toast(how === 'rear' ? 'Bumped!' : how === 'kick' ? 'Kick!' : 'Punch!', 500, '#ffd24a');
     }
@@ -425,12 +381,12 @@ class Game {
       if (l.cd > 0) continue;
       if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
         b.grant(l.type); l.cd = 14; l.mesh.visible = false;
-        if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.beep(true); }
+        if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.loot(); }
       }
     }
     for (const p of this.pads) {
       const hx = p.axis === 'x' ? 4.5 : 2.5, hz = p.axis === 'x' ? 2.5 : 4.5;
-      if (Math.abs(p.x - b.x) < hx && Math.abs(p.z - b.z) < hz && b.padT < 0.3) { b.padT = 1.6; b.speed = Math.min(b.speed + 8, 62); if (r.isPlayer) sound.beep(true); }
+      if (Math.abs(p.x - b.x) < hx && Math.abs(p.z - b.z) < hz && b.padT < 0.3) { b.padT = 1.6; b.speed = Math.min(b.speed + 8, 62); if (r.isPlayer) sound.pad(); }
     }
   }
 
@@ -438,7 +394,8 @@ class Game {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     const rk = this.rank(); const t = this.raceT;
     const best = loadBest(); let note = '';
-    if (!best || t < best) { try { localStorage.setItem(bestKey(), String(t)); } catch { /* ignore */ } note = '  New best!'; showBest(); }
+    if (!best || t < best) { saveBest(t); note = '  New best!'; }
+    sound.fanfare();
     toast(`Finished ${rk}${['st', 'nd', 'rd'][rk - 1] ?? 'th'}  ${fmt(t)}${note}`, 6000, '#ffd24a');
   }
 
@@ -497,23 +454,72 @@ class Game {
 function flash() { const f = $('flash'); f.style.opacity = '1'; window.setTimeout(() => (f.style.opacity = '0'), 160); }
 
 let game: Game | null = null;
-function startGame() {
-  game?.dispose();
+
+// ---------- city, sky and lights for the chosen map ----------
+let cityMap = '';
+function ensureCity() {
   const m = mapDef();
-  if (city) { scene.remove(city.group); city.group.traverse((o) => { const me = o as THREE.Mesh; me.geometry?.dispose?.(); }); }
-  configure(m); buildRoute(); city = buildCity(scene, m);
+  if (city && cityMap === m.id) return;
+  if (city) { scene.remove(city.group); city.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); }); }
+  configure(m); buildRoute(); city = buildCity(scene, m); cityMap = m.id;
   scene.background = new THREE.Color(m.sky); scene.fog = new THREE.Fog(m.sky, m.fog[0], m.fog[1]);
   hemi.intensity = m.hemi; sun.intensity = m.sun; headlight.intensity = m.night ? 2200 : 0;
-  game = new Game(); (window as any).__game = game;
-  $('hud').classList.add('on'); toggleMenu(false);
 }
-if (QS.has('auto')) startGame();
+
+// ---------- home page: the city behind the menu with the chosen bike on a turntable ----------
+let showBike: Bike | null = null; let plinth: THREE.Group | null = null; let homeTab = 'play'; let camR = 14, camHgt = 4.5, homeT = 0;
+function buildShowcase() {
+  if (showBike) scene.remove(showBike.mesh.root); if (plinth) scene.remove(plinth);
+  const def = bikeDef(); showBike = new Bike(bikeColor(), def); showBike.x = 0; showBike.z = 0; showBike.syncMesh(0); showBike.mesh.root.position.y = 0.2; scene.add(showBike.mesh.root);
+  plinth = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 0.2, 40), new THREE.MeshLambertMaterial({ color: 0x1a2030 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.09, 8, 60), new THREE.MeshBasicMaterial({ color: 0xffd24a })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.12;
+  plinth.add(disc, ring); plinth.position.y = 0.1; scene.add(plinth);
+}
+function homeFrame(dt: number) {
+  homeT += dt;
+  const garage = homeTab === 'garage', tr = garage ? 8.6 : 15, th = garage ? 2.4 : 5.5;
+  camR += (tr - camR) * Math.min(1, dt * 2.5); camHgt += (th - camHgt) * Math.min(1, dt * 2.5);
+  const ang = homeT * (garage ? 0.28 : 0.1) + 0.6;
+  camera.position.set(Math.sin(ang) * camR, camHgt, Math.cos(ang) * camR); camera.lookAt(0, garage ? 0.9 : 1.2, 0);
+  camera.fov = 52; camera.setViewOffset(innerWidth, innerHeight, -innerWidth * 0.2, 0, innerWidth, innerHeight); camera.updateProjectionMatrix();
+  if (showBike) { showBike.mesh.root.rotation.y = garage ? homeT * 0.5 : Math.PI * 0.3; for (const w of showBike.mesh.wheels) w.rotation.x += dt * 2; }
+}
+function enterHome() {
+  ui = 'home'; ensureCity(); buildShowcase();
+  $('hud').classList.remove('on'); showPause(false); showHome(true);
+  sound.setBike(bikeDef().cc); sound.engine(false); sound.music('menu');
+}
+function setPause(on: boolean) { ui = on ? 'pause' : 'play'; showPause(on); sound.engine(!on); sound.ui(on ? 'back' : 'click'); }
+
+function startGame() {
+  game?.dispose();
+  ensureCity(); buildRoute();
+  if (showBike) { scene.remove(showBike.mesh.root); showBike = null; } if (plinth) { scene.remove(plinth); plinth = null; }
+  camera.clearViewOffset(); camera.fov = 65; camera.updateProjectionMatrix();
+  game = new Game(); (window as any).__game = game;
+  ui = 'play'; showHome(false); showPause(false); $('hud').classList.add('on');
+  sound.setBike(bikeDef().cc); sound.engine(true); sound.music('race');
+}
+
+initMenu({
+  start: () => { sound.start(); startGame(); },
+  preview: () => { buildShowcase(); },
+  mapChanged: () => { ensureCity(); buildShowcase(); },
+  tab: (t) => { homeTab = t; },
+  resume: () => setPause(false),
+  restart: () => { startGame(); },
+  toMain: () => { game?.dispose(); game = null; enterHome(); },
+}, sound);
+(window as any).__ui = () => ui;
+enterHome();
+if (new URLSearchParams(location.search).has('auto')) startGame();
 
 // ---------- main loop ----------
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (game && !menuOpen) { game.update(dt); game.hud(); }
+  if (ui === 'play' && game) { game.update(dt); game.hud(); } else if (ui === 'home') homeFrame(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

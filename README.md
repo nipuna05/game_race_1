@@ -55,4 +55,6 @@ Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange 
 - `src/main.ts`: game loop, race, police logic, HUD and minimap.
 - `src/audio.ts`: engine, siren and crash sounds.
 
+Play on your network: run `npm run test-env:build` and `npm run test-env:client`, then others on the same Wi-Fi or LAN open `http://<your-PC-IP>:5181`. Everyone gets their own single-player game until multiplayer is built.
+
 Hosting: the GitHub Actions workflow in `.github/workflows/pages.yml` publishes it on GitHub Pages (set Settings, Pages, Source to "GitHub Actions").

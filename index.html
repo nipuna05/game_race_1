@@ -4,38 +4,82 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Bike Race</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f16; color: #e8eef5; font-family: system-ui, Segoe UI, sans-serif; user-select: none; }
+  :root { --gold: #ffd24a; --hot: #ff4d3d; --ink: #0b1019; --glass: rgba(12,18,30,.78); --line: rgba(255,255,255,.14); --blue: #4cc2ff; --green: #3ddc84; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f16; color: #e8eef5; font-family: Rajdhani, system-ui, Segoe UI, sans-serif; user-select: none; }
   canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---------- HUD ---------- */
   #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
   #hud.on { display: block; }
   #speed { position: absolute; right: 28px; bottom: 24px; text-align: right; text-shadow: 0 2px 8px #000; }
-  #speed b { font-size: 64px; font-weight: 800; letter-spacing: -.02em; } #speed small { font-size: 16px; color: #aab7c8; margin-left: 4px; }
-  #powers { font: 800 13px system-ui; letter-spacing: .08em; margin-top: 6px; line-height: 1.4; }
-  #boostbar { width: 180px; height: 6px; background: rgba(255,255,255,.15); border-radius: 3px; margin: 4px 0 0 auto; overflow: hidden; } #boostfill { height: 100%; width: 100%; background: #4cc2ff; }
-  #race { position: absolute; left: 24px; top: 20px; text-shadow: 0 2px 8px #000; font-size: 15px; line-height: 1.5; }
-  #race b { font-size: 26px; }
+  #speed b { font: 900 64px Orbitron, system-ui; letter-spacing: -.02em; } #speed small { font-size: 16px; color: #aab7c8; margin-left: 4px; }
+  #powers { font: 800 13px Orbitron, system-ui; letter-spacing: .08em; margin-top: 6px; line-height: 1.5; }
+  #boostbar { width: 190px; height: 7px; background: rgba(255,255,255,.15); border-radius: 4px; margin: 4px 0 0 auto; overflow: hidden; } #boostfill { height: 100%; width: 100%; background: linear-gradient(90deg, #2a8cff, #4cf0ff); }
+  #race { position: absolute; left: 24px; top: 20px; text-shadow: 0 2px 8px #000; font-size: 17px; line-height: 1.5; font-weight: 600; }
+  #race b { font: 900 34px Orbitron, system-ui; }
   #heat { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font-size: 28px; letter-spacing: .15em; text-shadow: 0 2px 8px #000; text-align: center; }
-  #heat small { display: block; font-size: 12px; letter-spacing: .12em; color: #ff8a8a; text-transform: uppercase; }
-  #toast { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font: 800 34px system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; }
+  #heat small { display: block; font-size: 13px; letter-spacing: .12em; color: #ff8a8a; text-transform: uppercase; }
+  #toast { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font: 900 32px Orbitron, system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; max-width: 90vw; }
   #toast.on { opacity: 1; }
   #mini { position: absolute; right: 20px; top: 20px; width: 190px; height: 190px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); background: rgba(10,14,20,.7); }
-  #hint { position: absolute; left: 24px; bottom: 20px; font-size: 12px; color: #9aa9bd; text-shadow: 0 1px 4px #000; line-height: 1.5; }
-  #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle, transparent 40%, rgba(255,0,0,.55)); transition: opacity .2s; } 
-  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(14,22,36,.82), rgba(5,8,14,.96)); z-index: 10; }
-  #menu.off { display: none; }
-  .card { width: min(620px, 94vw); max-height: 96vh; overflow-y: auto; background: rgba(18,26,40,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 26px 30px; box-shadow: 0 30px 100px rgba(0,0,0,.7); }
-  .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: -.01em; } .card h1 span { color: #ffd24a; }
-  .card p.sub { margin: 0 0 18px; color: #9aa9bd; font-size: 14px; }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 14px; }
-  .seg { display: flex; gap: 6px; } .seg button { background: #1d2a3f; color: #cfd9e6; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 13px; font: inherit; cursor: pointer; }
-  .seg button.on { background: #ffd24a; color: #111; border-color: #ffd24a; font-weight: 700; }
-  .info { font-size: 13px; color: #b8c6d8; margin: -2px 0 8px; line-height: 1.5; } .info b { color: #ffd24a; }
-  #bikeinfo { font-size: 13px; color: #b8c6d8; margin: -2px 0 8px; line-height: 1.5; } #bikeinfo b { color: #ffd24a; } .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px; font-size: 11px; color: #8696ab; } .stats span { display: block; } .stats i { display: block; height: 5px; margin-top: 3px; border-radius: 3px; background: #4cc2ff; }
-  .seg { flex-wrap: wrap; justify-content: flex-end; }
-  #go { width: 100%; margin-top: 18px; padding: 13px; font: 800 18px system-ui; border: 0; border-radius: 10px; background: #3ddc84; color: #06210f; cursor: pointer; } #go:hover { filter: brightness(1.08); }
-  .keys { margin-top: 14px; font-size: 12px; color: #8696ab; line-height: 1.6; }
-  #best { font-size: 12px; color: #8fb0d0; margin-top: 6px; }
+  #hint { position: absolute; left: 24px; bottom: 18px; font-size: 13px; color: #9aa9bd; text-shadow: 0 1px 4px #000; line-height: 1.5; font-weight: 600; }
+  #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle, transparent 40%, rgba(255,0,0,.55)); transition: opacity .2s; }
+
+  /* ---------- home page ---------- */
+  #home { position: fixed; inset: 0; z-index: 10; display: flex; pointer-events: none; opacity: 1; transition: opacity .35s; background: linear-gradient(90deg, rgba(6,9,16,.92) 0%, rgba(6,9,16,.72) 42%, rgba(6,9,16,0) 72%), linear-gradient(0deg, rgba(6,9,16,.65), rgba(6,9,16,0) 30%); }
+  #home.off { opacity: 0; pointer-events: none; visibility: hidden; }
+  #home > * { pointer-events: auto; }
+  .left { width: min(780px, 62vw); padding: 34px 0 24px 46px; display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; }
+  .logo { line-height: .92; margin-bottom: 18px; animation: logoin .8s cubic-bezier(.2,.9,.2,1); }
+  .logo b { display: block; font: 900 64px Orbitron, system-ui; font-style: italic; letter-spacing: .02em; color: #fff; text-shadow: 0 0 30px rgba(76,194,255,.45), 3px 3px 0 #1a2a44; transform: skewX(-8deg); }
+  .logo b span { color: var(--gold); text-shadow: 0 0 30px rgba(255,210,74,.55), 3px 3px 0 #5a3d00; }
+  .logo i { display: block; margin-top: 8px; font: 600 15px Rajdhani; letter-spacing: .42em; color: #8fb0d0; text-transform: uppercase; font-style: normal; }
+  .logo .bar { height: 4px; width: 230px; margin-top: 10px; background: linear-gradient(90deg, var(--gold), var(--hot), transparent); border-radius: 2px; animation: slide 2.6s ease-in-out infinite alternate; }
+  @keyframes logoin { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } } @keyframes slide { from { width: 120px; } to { width: 300px; } }
+  .body { display: flex; gap: 22px; flex: 1; min-height: 0; }
+  nav { width: 190px; display: flex; flex-direction: column; gap: 8px; flex: none; }
+  nav button { position: relative; text-align: left; padding: 13px 18px 13px 20px; border: 0; border-left: 4px solid transparent; background: rgba(255,255,255,.05); color: #c8d4e4; font: 700 19px Orbitron, system-ui; letter-spacing: .08em; cursor: pointer; clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%); transition: all .15s; }
+  nav button:hover { background: rgba(255,255,255,.11); color: #fff; transform: translateX(4px); }
+  nav button.on { background: linear-gradient(90deg, var(--gold), #ff9d2e); color: #14100a; border-left-color: #fff; transform: translateX(8px); }
+  nav small { display: block; font: 600 11px Rajdhani; letter-spacing: .12em; opacity: .7; margin-top: 2px; text-transform: uppercase; }
+  #panel { flex: 1; min-width: 0; max-width: 540px; background: var(--glass); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; overflow-y: auto; backdrop-filter: blur(10px); box-shadow: 0 24px 80px rgba(0,0,0,.55); animation: pin .3s ease-out; }
+  #panel::-webkit-scrollbar { width: 8px; } #panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 4px; } #panel::-webkit-scrollbar-track { background: transparent; }
+  @keyframes pin { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  #panel h2 { margin: 0 0 12px; font: 800 20px Orbitron, system-ui; letter-spacing: .1em; color: var(--gold); text-transform: uppercase; }
+  #panel h3 { margin: 16px 0 6px; font: 700 12px Rajdhani; letter-spacing: .2em; color: #8fb0d0; text-transform: uppercase; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 9px 0; font-size: 16px; font-weight: 600; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; } .seg button { background: rgba(255,255,255,.07); color: #cfd9e6; border: 1px solid var(--line); border-radius: 8px; padding: 6px 13px; font: 700 14px Rajdhani; letter-spacing: .04em; cursor: pointer; transition: all .12s; }
+  .seg button:hover { background: rgba(255,255,255,.14); } .seg button.on { background: var(--gold); color: #111; border-color: var(--gold); }
+  .go { width: 100%; margin-top: 18px; padding: 15px; font: 900 20px Orbitron, system-ui; letter-spacing: .12em; border: 0; border-radius: 10px; background: linear-gradient(90deg, #22c870, #3ddc84, #8bf0b0); color: #05210f; cursor: pointer; box-shadow: 0 8px 30px rgba(61,220,132,.35); transition: transform .12s, filter .12s; }
+  .go:hover { filter: brightness(1.1); transform: translateY(-2px); } .go:active { transform: none; }
+  .mini { display: flex; gap: 12px; margin-bottom: 8px; } .mini .tile { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.05); cursor: pointer; transition: background .15s; } .mini .tile:hover { background: rgba(255,255,255,.12); }
+  .tile small { display: block; font-size: 11px; letter-spacing: .2em; color: #8fb0d0; text-transform: uppercase; } .tile b { font: 800 16px Orbitron, system-ui; } .tile span { display: block; font-size: 13px; color: #aab7c8; }
+  .best { margin-top: 10px; font-size: 14px; color: #8fb0d0; text-align: center; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { position: relative; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.045); cursor: pointer; transition: all .15s; overflow: hidden; }
+  .card:hover { background: rgba(255,255,255,.1); transform: translateY(-2px); } .card.on { border-color: var(--gold); background: rgba(255,210,74,.13); box-shadow: 0 0 0 1px var(--gold) inset; }
+  .card b { font: 800 15px Orbitron, system-ui; letter-spacing: .04em; } .card em { float: right; font: 800 13px Orbitron; font-style: normal; color: var(--gold); } .card small { display: block; font-size: 12px; color: #9fb2c8; margin-top: 2px; letter-spacing: .08em; text-transform: uppercase; }
+  .stat { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin: 5px 0; font-size: 13px; color: #9fb2c8; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .stat i { display: block; height: 8px; border-radius: 4px; background: rgba(255,255,255,.1); overflow: hidden; } .stat i u { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2a8cff, #4cf0ff); text-decoration: none; }
+  .desc { font-size: 15px; color: #c3d0e0; margin: 4px 0 10px; line-height: 1.35; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; } .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); cursor: pointer; transition: transform .12s; } .sw:hover { transform: scale(1.15); } .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.3); }
+  .map { padding: 0; } .map svg { display: block; width: 100%; height: 76px; } .map .mt { padding: 8px 12px 10px; } .map b { font: 800 15px Orbitron, system-ui; } .map small { display: block; text-transform: none; letter-spacing: 0; font-size: 13px; color: #a8b8cc; margin-top: 3px; line-height: 1.3; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 16px; font-weight: 600; } .keys kbd { display: inline-block; min-width: 22px; text-align: center; padding: 2px 8px; margin-right: 4px; border-radius: 6px; background: #1d2a3f; border: 1px solid var(--line); border-bottom-width: 3px; font: 700 13px Orbitron, system-ui; color: #fff; }
+  .slider { display: grid; grid-template-columns: 100px 1fr 44px; align-items: center; gap: 10px; margin: 12px 0; font-size: 16px; font-weight: 600; } .slider span:last-child { text-align: right; color: var(--gold); font-weight: 700; }
+  input[type=range] { accent-color: var(--gold); width: 100%; }
+  .foot { margin-top: 10px; font-size: 13px; color: #6f8099; letter-spacing: .06em; }
+  #sndhint { position: fixed; right: 22px; bottom: 16px; z-index: 11; font-size: 14px; color: #ffd24a; letter-spacing: .1em; text-transform: uppercase; animation: blink 1.4s infinite; pointer-events: none; } @keyframes blink { 50% { opacity: .35; } }
+
+  /* ---------- pause ---------- */
+  #pause { position: fixed; inset: 0; z-index: 12; display: none; align-items: center; justify-content: center; background: rgba(5,8,14,.7); backdrop-filter: blur(4px); }
+  #pause.on { display: flex; }
+  #pause .box { width: min(380px, 90vw); padding: 26px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); text-align: center; animation: pin .25s ease-out; }
+  #pause h2 { margin: 0 0 16px; font: 900 26px Orbitron, system-ui; letter-spacing: .12em; color: var(--gold); }
+  #pause button { display: block; width: 100%; margin: 8px 0; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.07); color: #fff; font: 800 16px Orbitron, system-ui; letter-spacing: .1em; cursor: pointer; transition: all .12s; } #pause button:hover { background: rgba(255,255,255,.16); transform: translateY(-1px); } #pause button.main { background: var(--gold); color: #111; }
+  #pause p { color: #8fb0d0; font-size: 14px; margin: 14px 0 0; }
 </style>
 </head>
 <body>
@@ -46,25 +90,26 @@
   <div id="toast"></div>
   <canvas id="mini" width="380" height="380"></canvas>
   <div id="speed"><b id="spd">0</b><small>km/h</small><div id="powers"></div><div id="boostbar"><div id="boostfill"></div></div></div>
-  <div id="hint">W / Up gas &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake &nbsp; Shift boost &nbsp; Q / E punch left / right &nbsp; F kick &nbsp; R reset &nbsp; Esc menu</div>
+  <div id="hint">W / Up gas &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake &nbsp; Shift boost &nbsp; Q / E punch &nbsp; F kick &nbsp; R reset &nbsp; Esc pause</div>
   <div id="flash"></div>
 </div>
-<div id="menu"><div class="card">
-  <h1>Bike <span>Race</span></h1>
-  <p class="sub">Race through a busy city. Dodge traffic and people, and stay out of the police's way.</p>
-  <div class="row"><span>Map</span><div class="seg" data-k="map"></div></div>
-  <div id="mapinfo" class="info"></div>
-  <div class="row"><span>Bike</span><div class="seg" data-k="bike"></div></div>
-  <div id="bikeinfo" class="info"></div>
-  <div class="row"><span>Mode</span><div class="seg" data-k="mode"><button data-v="race" class="on">Race</button><button data-v="free">Free ride</button></div></div>
-  <div class="row"><span>Police</span><div class="seg" data-k="police"><button data-v="1" class="on">On</button><button data-v="0">Off</button></div></div>
-  <div class="row"><span>Traffic and people</span><div class="seg" data-k="traffic"><button data-v="0">Empty</button><button data-v="1" class="on">Normal</button><button data-v="2">Busy</button></div></div>
-  <div class="row"><span>Laps (race)</span><div class="seg" data-k="laps"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div></div>
-  <div class="row"><span>Rivals ride</span><div class="seg" data-k="field"><button data-v="same" class="on">Same class as me</button><button data-v="mixed">Mixed bikes</button></div></div>
-  <div class="row"><span>Rival riders (race)</span><div class="seg" data-k="rivals"><button data-v="0">0</button><button data-v="3" class="on">3</button><button data-v="5">5</button></div></div>
-  <button id="go">Start</button>
-  <div id="best"></div>
-  <div class="keys">Multiplayer is planned next. Desktop keyboard only for now.</div>
+<div id="home">
+  <div class="left">
+    <div class="logo"><b>BIKE <span>RACE</span></b><i>Street &middot; Police &middot; Glory</i><div class="bar"></div></div>
+    <div class="body">
+      <nav id="nav"></nav>
+      <div id="panel"></div>
+    </div>
+    <div class="foot">Multiplayer coming soon &middot; Desktop keyboard</div>
+  </div>
+</div>
+<div id="sndhint">Click or press any key for sound</div>
+<div id="pause"><div class="box">
+  <h2>PAUSED</h2>
+  <button id="p-resume" class="main">RESUME</button>
+  <button id="p-restart">RESTART</button>
+  <button id="p-main">MAIN MENU</button>
+  <p>Esc to resume</p>
 </div></div>
 <script type="module" src="/src/main.ts"></script>
 </body>

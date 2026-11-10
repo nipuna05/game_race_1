@@ -20,12 +20,14 @@
   #boostbar { width: 190px; height: 7px; background: rgba(255,255,255,.15); border-radius: 4px; margin: 4px 0 0 auto; overflow: hidden; } #boostfill { height: 100%; width: 100%; background: linear-gradient(90deg, #2a8cff, #4cf0ff); }
   #race { position: absolute; left: 24px; top: 20px; text-shadow: 0 2px 8px #000; font-size: 17px; line-height: 1.5; font-weight: 600; }
   #race b { font: 900 34px Orbitron, system-ui; }
-  #navhud { position: absolute; left: 24px; top: 176px; display: none; align-items: center; gap: 12px; padding: 8px 16px 8px 10px; border-radius: 12px; background: rgba(10,16,28,.72); border: 1px solid rgba(255,255,255,.16); text-shadow: none; }
-  #navhud.on { display: flex; } #navhud b { display: block; font: 800 20px Orbitron, system-ui; letter-spacing: .04em; color: #fff; } #navhud span { font-size: 15px; font-weight: 600; color: #9fb2c8; } #navhud.wrong { border-color: #ff5a5a; background: rgba(60,10,10,.8); } #navhud.wrong b { color: #ff8a8a; } #navhud.turn b { color: #ffd24a; }
-  #navarrow { transition: transform .08s linear; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+  #turnsign { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; pointer-events: none; }
+  #turnsign.on { display: flex; } #turnsign svg { filter: drop-shadow(0 0 14px rgba(255,210,74,.85)) drop-shadow(0 5px 8px rgba(0,0,0,.65)); transition: transform .15s; }
+  #turnsign b { margin-top: 4px; padding: 5px 20px; border-radius: 10px; background: var(--glass); border: 1px solid rgba(255,210,74,.55); font: 800 26px Orbitron, system-ui; color: var(--gold); letter-spacing: .08em; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #turnsign.near svg { animation: tsblink .4s ease-in-out infinite alternate; } @keyframes tsblink { from { opacity: 1; transform: scale(1); } to { opacity: .45; transform: scale(1.06); } }
+  #turnsign.wrong svg { filter: drop-shadow(0 0 14px rgba(255,80,80,.9)) drop-shadow(0 5px 8px rgba(0,0,0,.65)); } #turnsign.wrong svg path { fill: #ff5a5a; } #turnsign.wrong b { border-color: #ff7a7a; color: #ff9a9a; }
   #heat { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font-size: 28px; letter-spacing: .15em; text-shadow: 0 2px 8px #000; text-align: center; }
   #heat small { display: block; font-size: 13px; letter-spacing: .12em; color: #ff8a8a; text-transform: uppercase; }
-  #toast { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font: 900 32px Orbitron, system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; max-width: 90vw; }
+  #toast { position: absolute; left: 50%; top: 42%; transform: translateX(-50%); font: 900 32px Orbitron, system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; max-width: 90vw; }
   #toast.on { opacity: 1; }
   #bigmap { position: absolute; right: 230px; top: 20px; width: 190px; height: 190px; border-radius: 12px; border: 2px solid rgba(255,255,255,.3); background: rgba(10,14,20,.7); transition: all .2s; }
   #bigmap.big { right: 50%; transform: translateX(50%); top: 70px; width: min(560px, 78vh); height: min(560px, 78vh); z-index: 3; border-color: rgba(255,210,74,.6); box-shadow: 0 20px 80px rgba(0,0,0,.7); }
@@ -116,8 +118,8 @@
 <canvas id="view"></canvas>
 <div id="hud">
   <div id="race"></div>
+  <div id="turnsign"><svg id="tsarrow" viewBox="0 0 100 100" width="130" height="130"><defs><linearGradient id="tsg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#ff9d2e"/></linearGradient></defs><path d="M50 6 L94 54 H67 V94 H33 V54 H6 Z" fill="url(#tsg)" stroke="#0b1019" stroke-width="5" stroke-linejoin="round"/></svg><b id="tsdist"></b></div>
   <div id="heat"></div>
-  <div id="navhud"><svg id="navarrow" viewBox="0 0 64 64" width="58" height="58"><path d="M32 5 L56 52 L32 41 L8 52 Z" fill="#ffd24a" stroke="#0b1019" stroke-width="3" stroke-linejoin="round"/></svg><div><b id="navturn"></b><span id="navdist"></span></div></div>
   <div id="toast"></div>
   <canvas id="bigmap" width="380" height="380"></canvas>
   <canvas id="mini" width="380" height="380"></canvas>

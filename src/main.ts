@@ -108,6 +108,8 @@ const DIFFS: Record<string, Diff> = {
   normal: { label: 'Normal', corner: 1, skill: [0.9, 0.99], aiGap: [1.2, 3], aiBoost: false, police: { spd: 1, bust: 2, decay: 1, heat: 1, extra: 0 }, lives: 3, respawnPen: 8, bustPen: 10, wreckImpact: 22, reward: 1 },
   hard: { label: 'Hard', corner: 1.1, skill: [1.04, 1.14], aiGap: [0.7, 1.8], aiBoost: true, police: { spd: 1.2, bust: 1.3, decay: 0.6, heat: 1.3, extra: 1 }, lives: 2, respawnPen: 12, bustPen: 14, wreckImpact: 19, reward: 1.5 },
 };
+/** A flat arrow pointing +y (used for the guide on the road and the floating arrow). */
+function arrowShape(): THREE.Shape { const a = new THREE.Shape(); a.moveTo(-0.9, -2.4); a.lineTo(0.9, -2.4); a.lineTo(0.9, 0.6); a.lineTo(2.3, 0.6); a.lineTo(0, 3.3); a.lineTo(-2.3, 0.6); a.lineTo(-0.9, 0.6); a.closePath(); return a; }
 interface MpCfg { you: number; players: PlayerInfo[]; seed: number; inMs: number; settings: Settings }
 /** A small seeded random generator: every player gets the same crates and boost pads. */
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -125,6 +127,7 @@ class Game {
   heat = 0; bust = 0; lastBeep = 4;
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
+  guideChev: THREE.InstancedMesh | null = null; guidePos: { x: number; z: number; q: THREE.Quaternion }[] = []; guideTurns: THREE.Mesh[] = []; guideFloat: THREE.Mesh | null = null;
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
   lives = 3; maxLives = 3; D: Diff = DIFFS.normal; fallTimes: number[] = [];
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
@@ -155,7 +158,7 @@ class Game {
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(R / 2 - 1.5, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
     this.ring.rotation.x = Math.PI / 2; this.ring.position.y = 0.4;
     if (this.mode === 'race') scene.add(this.beacon, this.ring);
-    this.placeLoot(); this.placeCoins();
+    this.placeLoot(); this.placeCoins(); if (this.mode === 'race') this.buildGuide();
     this.resetStart();
   }
 
@@ -210,6 +213,9 @@ class Game {
     for (const l of this.loots) scene.remove(l.mesh);
     for (const p of this.pads) scene.remove(p.mesh);
     if (this.coinMesh) { scene.remove(this.coinMesh); this.coinMesh.dispose(); }
+    if (this.guideChev) { scene.remove(this.guideChev); this.guideChev.dispose(); }
+    for (const g of this.guideTurns) scene.remove(g);
+    if (this.guideFloat) scene.remove(this.guideFloat);
     scene.remove(this.beacon, this.ring);
   }
 
@@ -343,7 +349,7 @@ class Game {
     }
     this.collideAgents(dt);
     if (this.player.bike.fall <= 0) this.collectCoins();
-    this.spinCoins();
+    this.spinCoins(); if (this.mode === 'race') this.updateGuide(this.t);
     for (const l of this.loots) {
       if (l.cd > 0) { l.cd -= dt; if (l.cd <= 0) l.mesh.visible = true; }
       l.mesh.rotation.y += dt * 2.2; l.mesh.position.y = 1.6 + Math.sin(this.t * 3 + l.x) * 0.25;
@@ -479,6 +485,53 @@ class Game {
     for (let i = 0; i < 6; i++) { const ax: 'x' | 'z' = this.rand() < 0.5 ? 'x' : 'z', line = Math.floor(rnd2(-K, K + 1)) * P, pos = rnd2(-HALF + 30, HALF - 30), o = rnd2(-R / 4, R / 4); pad(ax === 'x' ? pos : line + o, ax === 'x' ? line + o : pos, ax); }
   }
 
+  /** Direction marks painted on the road: glowing chevrons along the route, and a big arrow in each junction showing which way to go. */
+  buildGuide() {
+    const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2), up = new THREE.Vector3(0, 1, 0);
+    const yaw = (ux: number, uz: number) => new THREE.Quaternion().setFromAxisAngle(up, Math.atan2(-ux, -uz)).multiply(flat);   // lay a shape (pointing +y) flat on the road, pointing along (ux, uz)
+    const chev = new THREE.Shape(); chev.moveTo(0, 1.0); chev.lineTo(1.7, -0.5); chev.lineTo(1.7, -1.4); chev.lineTo(0, 0.1); chev.lineTo(-1.7, -1.4); chev.lineTo(-1.7, -0.5); chev.closePath();
+    const mat = () => new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    for (let k = 0; k < N; k++) {
+      const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len, q = yaw(ux, uz);
+      for (let t = 26; t < len - 26; t += 11) {
+        const x = a.x + ux * t, z = a.z + uz * t, along = Math.abs(ux) > 0.5 ? x : z;
+        if (Math.abs(along - Math.round(along / P) * P) < R / 2 + 2) continue;                      // keep the junctions clear for their own arrow
+        this.guidePos.push({ x, z, q });
+      }
+    }
+    this.guideChev = new THREE.InstancedMesh(new THREE.ShapeGeometry(chev), mat(), this.guidePos.length); this.guideChev.frustumCulled = false; scene.add(this.guideChev);
+    this.guideFloat = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape()), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, side: THREE.DoubleSide })); this.guideFloat.renderOrder = 20; scene.add(this.guideFloat);
+    const ag = new THREE.ShapeGeometry(arrowShape());
+    for (let k = 0; k < N; k++) {                                                                    // the arrow in each junction points down the next leg
+      const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1;
+      const m = new THREE.Mesh(ag, mat()); m.quaternion.copy(yaw(dx / len, dz / len)); m.position.set(a.x, 0.1, a.z); m.scale.setScalar(2); scene.add(m); this.guideTurns.push(m);
+    }
+    this.updateGuide(0);
+  }
+  updateGuide(t: number) {
+    const me = this.player.bike, next = this.player.passed % N, m = new THREE.Matrix4(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    if (this.guideChev) {
+      this.guidePos.forEach((g, i) => {
+        const d = Math.hypot(g.x - me.x, g.z - me.z), s = (1.25 + 0.2 * Math.sin(t * 7 - i * 0.8)) * clamp((200 - d) / 70, 0, 1);   // a pulse runs along the route; marks far away fade out
+        p.set(g.x, 0.09, g.z); sc.setScalar(s); m.compose(p, g.q, sc); this.guideChev!.setMatrixAt(i, m);
+      });
+      this.guideChev.instanceMatrix.needsUpdate = true;
+    }
+    this.guideTurns.forEach((g, k) => {
+      const isNext = k === next, mat = g.material as THREE.MeshBasicMaterial;
+      g.scale.setScalar(isNext ? 3.1 + Math.sin(t * 6) * 0.3 : 2.2); mat.opacity = isNext ? 0.95 : 0.4; mat.color.setHex(isNext ? 0xffe27a : 0xb8862a);
+    });
+    // a glowing arrow floating over the road just ahead of the bike, right where you are looking: it bends towards the turn as it gets close
+    if (this.guideFloat) {
+      const k = this.navKind, ramp = clamp((130 - this.navD) / 80, 0, 1), turn = this.navWrong ? Math.PI : k === 'left' ? ramp * Math.PI / 2 : k === 'right' ? -ramp * Math.PI / 2 : 0;
+      const ang = me.h + turn, X = new THREE.Vector3(1, 0, 0), flat = new THREE.Quaternion().setFromAxisAngle(X, -Math.PI / 2), tilt = new THREE.Quaternion().setFromAxisAngle(X, 0.65);   // tilted up so it reads as an arrow from behind
+      this.guideFloat.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-Math.sin(ang), -Math.cos(ang))).multiply(tilt).multiply(flat));
+      this.guideFloat.position.set(me.x + Math.sin(me.h) * 15, 1.5 + Math.sin(t * 4) * 0.25, me.z + Math.cos(me.h) * 15);
+      this.guideFloat.scale.setScalar(0.85 + (this.navWrong ? 0.15 : 0)); (this.guideFloat.material as THREE.MeshBasicMaterial).color.setHex(this.navWrong ? 0xff5a5a : 0xffd24a);
+      this.guideFloat.visible = this.phase !== 'done';
+    }
+  }
+
   /** Gold coins along the route and around the roads (worth 5 each, kept when the ride ends). */
   placeCoins() {
     const run = (x: number, z: number, dx: number, dz: number, n: number) => { for (let i = 0; i < n; i++) this.coinPos.push({ x: x + dx * i * 4.5, z: z + dz * i * 4.5, got: false }); };
@@ -581,25 +634,21 @@ class Game {
   }
 
   /** The route guide: an arrow to the next checkpoint, how far it is, and what the road does there (left, right, straight, finish). */
-  private navTxt = '';
+  navKind = 'straight'; navD = 999; navWrong = false;
   navUpdate() {
-    const el = $('navhud'), b = this.player.bike;
-    if (this.mode !== 'race' || this.phase === 'done') { el.classList.remove('on'); return; }
+    const b = this.player.bike, ts = $('turnsign');
+    if (this.mode !== 'race' || this.phase === 'done') { ts.classList.remove('on'); this.navKind = 'straight'; this.navWrong = false; return; }
     const me = this.player, n0 = this.nextNode(me), from = node(me.passed - 1), n1 = node(me.passed + 1);
     const dx = n0.x - b.x, dz = n0.z - b.z, d = Math.hypot(dx, dz);
     let rel = Math.atan2(dx, dz) - b.h; while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
     const ux = n0.x - from.x, uz = n0.z - from.z, vx = n1.x - n0.x, vz = n1.z - n0.z, cross = (ux * vz - uz * vx) / ((Math.hypot(ux, uz) || 1) * (Math.hypot(vx, vz) || 1));
     const finishing = me.passed >= this.laps * N, kind = finishing ? 'finish' : cross < -0.5 ? 'left' : cross > 0.5 ? 'right' : 'straight';
-    const wrong = Math.abs(rel) > 2.3 && Math.abs(b.speed) > 3, m = d > 100 ? Math.round(d / 10) * 10 : Math.round(d / 5) * 5;
-    let turn: string, sub: string, cls = '';
-    if (wrong) { turn = 'WRONG WAY'; sub = 'Turn around'; cls = 'wrong'; }
-    else if (d > 230) { turn = 'Follow the road'; sub = `Checkpoint in ${m} m`; }
-    else if (kind === 'finish') { turn = 'Finish line'; sub = `${m} m ahead`; cls = 'turn'; }
-    else if (kind === 'straight') { turn = 'Straight on'; sub = `Checkpoint in ${m} m`; }
-    else { turn = `← Turn LEFT`.replace('←', kind === 'left' ? '↰' : '↱').replace('LEFT', kind === 'left' ? 'LEFT' : 'RIGHT'); sub = `in ${m} m`; cls = 'turn'; }
-    const key = `${turn}|${sub}|${cls}`;
-    if (key !== this.navTxt) { this.navTxt = key; $('navturn').textContent = turn; $('navdist').textContent = sub; el.className = `on ${cls}`; }
-    ($('navarrow') as unknown as SVGElement).style.transform = `rotate(${(-rel * 180 / Math.PI).toFixed(1)}deg)`;
+    const wrong = Math.abs(rel) > 2.3 && (Math.abs(b.speed) > 3 || this.phase === 'go' && this.raceT > 1), m = d > 100 ? Math.round(d / 10) * 10 : Math.round(d / 5) * 5;
+    this.navKind = kind; this.navD = d; this.navWrong = wrong;
+    // the big arrow in the middle of the screen: the turn before it comes, and a U-turn warning when heading the wrong way
+    const show = wrong || (kind !== 'straight' && d < 260);
+    ts.classList.toggle('on', show); ts.classList.toggle('wrong', wrong); ts.classList.toggle('near', !wrong && d < 70);
+    if (show) { ($('tsarrow') as unknown as SVGElement).style.transform = `rotate(${wrong ? 180 : kind === 'left' ? -90 : kind === 'right' ? 90 : 0}deg)`; $('tsdist').textContent = wrong ? 'TURN AROUND' : kind === 'finish' ? `FINISH  ${m} m` : `${m} m`; }
   }
 
   /** The whole-city map at the top: roads, the race route with numbered checkpoints, you (pulsing, with your heading), riders and police. */

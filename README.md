@@ -42,7 +42,7 @@ Each page simulates its own bike and the server relays the states, picks the sta
 
 ## Directions and the map
 
-In a race, a panel on the left gives directions: an arrow to the next checkpoint, the distance, and what the road does there ("Turn LEFT in 80 m", "Straight on", "Finish line"). It turns red with "WRONG WAY" if you are heading back the wrong way. The map at the top shows the whole city with the race route and numbered checkpoints, a pulsing YOU marker with the way you face, rivals (blue) and police (red). Press M to make it big. The round radar beside it shows the streets around you.
+In a race the directions are on the road, where you are looking: a big gold arrow sign in the middle of the screen shows the next turn and the distance (it flashes when the turn is close, and turns red with TURN AROUND if you head the wrong way), glowing chevrons run along the route and pulse forward, each junction has a large arrow showing which way to go (the next one is brightest), and a glowing arrow floats over the road just ahead of you and bends into the turn. The map at the top shows the whole city with the race route and numbered checkpoints, a pulsing YOU marker with the way you face, rivals (blue) and police (red). Press M to make it big. The round radar beside it shows the streets around you.
 
 ## Difficulty
 

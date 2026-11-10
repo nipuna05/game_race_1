@@ -1,7 +1,7 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
 export const PROTOCOL_VERSION = 1;
 export const MAX_PLAYERS = 12;
-export const BIKE_IDS = ['scooter', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
+export const BIKE_IDS = ['scooter', 'vespa', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
 
 export interface PlayerInfo { id: number; name: string; bike: string; color: string }

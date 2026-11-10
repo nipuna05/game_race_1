@@ -6,13 +6,15 @@
 
 ## Models used on the developer's PC only (not in the repository)
 
-These three bike models are kept out of git (`public/models/bikes/`) until their licences are confirmed. Without them the game uses its own built-in bikes.
+These five bike models are kept out of git (`public/models/bikes/`) until their licences are confirmed. Without them the game uses its own built-in bikes.
 
 | File | Used for | Author | Source |
 | --- | --- | --- | --- |
 | `vrmobil.glb` | Scooter | Vladimir Ilic, "VR-Mobil" | Sketchfab (licence to confirm) |
 | `sv650.glb` | Sport | Paul Spooner, "Motorcycle, Suzuki SV650" | Sketchfab (licence to confirm) |
 | `poly.glb` | Cruiser | Poly by Google, "Motorcycle" | Poly (usually CC BY 3.0, to confirm) |
+| `military.glb` | Enduro | Zsky, "Military Motorbike" | Sketchfab (licence to confirm) |
+| `vespa.glb` | Vespa | Jasmine Roberts, "Vespa" | Sketchfab (licence to confirm) |
 
 If the licences allow sharing with credit, move the files into the repository and these credits will already be in place.
 

@@ -24,6 +24,10 @@ const STYLES: Record<string, Style> = {
   hyper: { wb: 1.5, wr: 0.34, seatY: 0.88, seatZ: -0.32, tank: [0.6, 0.26, 0.3, 1.06, 0.08], bars: 'clip', fairing: 'hyper', exhaust: 'under', head: 'angular', pose: 'tuck', spokes: false, tireW: 0.15, eng: 1.3, fender: 'short', neon: 0x9b59ff },
 };
 
+/** Rider position for bikes that use a downloaded model whose seat is not where the built-in bike's is. */
+const MODEL_STYLES: Record<string, Style> = { dirt: { ...STYLES.dirt, seatY: 0.8, seatZ: -0.2, pose: 'semi', wr: 0.34, fender: 'short' } };
+STYLES.vespa = STYLES.scooter;   // the Vespa is built like the scooter (rider position)
+
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 function std(color: number, metal = 0.1, rough = 0.6, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
   const key = `${color}|${metal}|${rough}|${JSON.stringify(extra)}`; let m = matCache.get(key);
@@ -75,7 +79,7 @@ function limb(origin: THREE.Vector3, pts: THREE.Vector3[], radii: number[], mats
 }
 
 export function makeBikeMesh(color: number, def: BikeDef): BikeMesh {
-  const st = STYLES[def.id] ?? STYLES.street, root = new THREE.Group(), lean = new THREE.Group(); root.add(lean);
+  const glb = fitBike(def.id, color), st = (glb && MODEL_STYLES[def.id]) || STYLES[def.id] || STYLES.street, root = new THREE.Group(), lean = new THREE.Group(); root.add(lean);
   const body = std(color, 0.55, 0.28, { envMapIntensity: 1.2 }), dark = std(new THREE.Color(color).multiplyScalar(0.45).getHex(), 0.5, 0.4);
   const fixed = new Merge(), steerM = new Merge();
   const hz = st.wb / 2, axleF = V(0, st.wr, hz), axleR = V(0, st.wr, -hz);
@@ -211,7 +215,6 @@ export function makeBikeMesh(color: number, def: BikeDef): BikeMesh {
   // grips follow the steering: put the hands' bars in the steer group already (arms are static, the small steer angle hides the gap)
 
   // a downloaded model (when available) replaces the built-in frame, wheels and bodywork; the rider stays
-  const glb = fitBike(def.id, color);
   if (glb) { for (const p of bodyParts) lean.remove(p); lean.add(glb); }
 
   // soft shadow under the bike, and the power-up aura

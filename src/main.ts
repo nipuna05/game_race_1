@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildCity, P, R, K, HALF, rnd, clamp } from './city';
+import { buildCity, configure, MAPS, P, R, K, HALF, rnd, clamp, type City, type MapDef } from './city';
 import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { Sound } from './audio';
@@ -15,15 +15,16 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fbbe8);
 scene.fog = new THREE.Fog(0x8fbbe8, 120, 420);
 const camera = new THREE.PerspectiveCamera(65, 1, 0.3, 700);
-scene.add(new THREE.HemisphereLight(0xdbe9ff, 0x4a4f58, 1.15));
 const sun = new THREE.DirectionalLight(0xfff1d6, 1.6); sun.position.set(120, 200, 80); scene.add(sun);
-buildCity(scene);
+let city: City | null = null;
+const hemi = new THREE.HemisphereLight(0xdbe9ff, 0x4a4f58, 1.15); scene.add(hemi);
+const headlight = new THREE.PointLight(0xfff0d0, 0, 60, 1.4); scene.add(headlight);
 const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
 addEventListener('resize', resize); resize();
 
 // ---------- settings (menu) ----------
 const savedBike = (() => { try { return localStorage.getItem('bikerace.bike.v1') || 'street'; } catch { return 'street'; } })();
-const opt: Record<string, string> = { bike: savedBike, field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
+const opt: Record<string, string> = { map: (() => { try { return localStorage.getItem('bikerace.map.v1') || 'downtown'; } catch { return 'downtown'; } })(), bike: savedBike, field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3' };
 document.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
   seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); opt[seg.dataset.k!] = b.dataset.v!;
@@ -32,6 +33,15 @@ document.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
 for (const k of Object.keys(opt)) if (QS.has(k)) {   // ?mode=free&police=0&traffic=2 ... for quick tests
   opt[k] = QS.get(k)!; document.querySelectorAll<HTMLElement>(`.seg[data-k=${k}] button`).forEach((b) => b.classList.toggle('on', b.dataset.v === opt[k]));
 }
+const mapSeg = document.querySelector<HTMLElement>('.seg[data-k=map]')!;
+MAPS.forEach((m) => { const el = document.createElement('button'); el.dataset.v = m.id; el.textContent = m.name; mapSeg.appendChild(el); });
+const pickMap = (id: string) => {
+  const m = MAPS.find((x) => x.id === id) ?? MAPS[0]; opt.map = m.id;
+  mapSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', (x as HTMLElement).dataset.v === m.id));
+  $('mapinfo').innerHTML = `<b>${m.name}</b> ${m.desc}`; showBest();
+  try { localStorage.setItem('bikerace.map.v1', m.id); } catch { /* ignore */ }
+};
+mapSeg.addEventListener('click', (e) => { const v = (e.target as HTMLElement).dataset?.v; if (v) pickMap(v); });
 const bikeSeg = document.querySelector<HTMLElement>('.seg[data-k=bike]')!;
 BIKES.forEach((b) => { const el = document.createElement('button'); el.dataset.v = b.id; el.textContent = `${b.name} ${b.cc}cc`; bikeSeg.appendChild(el); });
 const pickBike = (id: string) => {
@@ -43,16 +53,21 @@ const pickBike = (id: string) => {
 };
 bikeSeg.addEventListener('click', (e) => { const v = (e.target as HTMLElement).dataset?.v; if (v) pickBike(v); });
 pickBike(opt.bike);
-const bestKey = 'bikerace.best.v1';
-const loadBest = (): number => { try { return Number(localStorage.getItem(bestKey)) || 0; } catch { return 0; } };
+const bestKey = () => `bikerace.best.v1.${opt.map}`;
+const loadBest = (): number => { try { return Number(localStorage.getItem(bestKey())) || 0; } catch { return 0; } };
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-const showBest = () => { const b = loadBest(); $('best').textContent = b ? `Best race time: ${fmt(b)}` : ''; };
-showBest();
+const showBest = () => { const b = loadBest(); $('best').textContent = b ? `Best race time on ${mapDef().name}: ${fmt(b)}` : ''; };
+const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
+pickMap(opt.map);
 
 // ---------- route ----------
-const ROUTE: [number, number][] = [[0, -3], [0, -1], [3, -1], [3, 3], [0, 3], [0, 1], [-3, 1], [-3, -3]];
-const NODE = ROUTE.map(([i, j]) => ({ x: i * P, z: j * P }));
-const N = NODE.length;
+// the race route is a loop of junctions that fits the map's size: a ring with two detours through the middle
+let NODE: { x: number; z: number }[] = [], N = 8;
+function buildRoute() {
+  const r = K - 1, h = Math.max(1, Math.floor(r / 3));
+  const g: [number, number][] = [[0, -r], [0, -h], [r, -h], [r, r], [0, r], [0, h], [-r, h], [-r, -r]];
+  NODE = g.map(([i, j]) => ({ x: i * P, z: j * P })); N = NODE.length;
+}
 const node = (n: number) => NODE[((n % N) + N) % N];
 
 // ---------- input ----------
@@ -109,7 +124,7 @@ class Game {
         r.bike.skill = rnd(0.9, 0.99); scene.add(r.bike.mesh.root); this.riders.push(r);
       }
     }
-    const nCars = [0, 36, 72][this.traffic], nPeds = [0, 60, 130][this.traffic], nPol = this.police ? [2, 3, 5][this.traffic] : 0;
+    const tm = mapDef().traffic, nCars = Math.round([0, 36, 72][this.traffic] * tm), nPeds = Math.round([0, 60, 130][this.traffic] * tm), nPol = this.police ? [2, 3, 5][this.traffic] : 0;
     for (let i = 0; i < nCars; i++) this.addAgent('car');
     for (let i = 0; i < nPeds; i++) this.addAgent('ped');
     for (let i = 0; i < nPol; i++) this.addAgent('police');
@@ -234,6 +249,7 @@ class Game {
     this.collideAgents(dt);
     sound.update(me.speed, me.boosting, closest < 90 && this.heat > 0 ? clamp(1 - closest / 90, 0.2, 1) : 0);
     this.updateCamera(dt, false);
+    if (mapDef().night) { const f = me.fwd; headlight.position.set(me.x + f.x * 6, 5, me.z + f.z * 6); }
     // checkpoint beacon
     if (this.mode === 'race') { const n = this.nextNode(this.player); this.beacon.position.set(n.x, 45, n.z); this.ring.position.set(n.x, 0.4, n.z); this.beacon.visible = this.phase !== 'done'; this.ring.visible = this.beacon.visible; }
   }
@@ -283,7 +299,7 @@ class Game {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     const rk = this.rank(); const t = this.raceT;
     const best = loadBest(); let note = '';
-    if (!best || t < best) { try { localStorage.setItem(bestKey, String(t)); } catch { /* ignore */ } note = '  New best!'; showBest(); }
+    if (!best || t < best) { try { localStorage.setItem(bestKey(), String(t)); } catch { /* ignore */ } note = '  New best!'; showBest(); }
     toast(`Finished ${rk}${['st', 'nd', 'rd'][rk - 1] ?? 'th'}  ${fmt(t)}${note}`, 6000, '#ffd24a');
   }
 
@@ -336,6 +352,11 @@ function flash() { const f = $('flash'); f.style.opacity = '1'; window.setTimeou
 let game: Game | null = null;
 function startGame() {
   game?.dispose();
+  const m = mapDef();
+  if (city) { scene.remove(city.group); city.group.traverse((o) => { const me = o as THREE.Mesh; me.geometry?.dispose?.(); }); }
+  configure(m); buildRoute(); city = buildCity(scene, m);
+  scene.background = new THREE.Color(m.sky); scene.fog = new THREE.Fog(m.sky, m.fog[0], m.fog[1]);
+  hemi.intensity = m.hemi; sun.intensity = m.sun; headlight.intensity = m.night ? 2200 : 0;
   game = new Game(); (window as any).__game = game;
   $('hud').classList.add('on'); toggleMenu(false);
 }

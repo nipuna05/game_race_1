@@ -23,12 +23,13 @@
   #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle, transparent 40%, rgba(255,0,0,.55)); transition: opacity .2s; } 
   #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(14,22,36,.82), rgba(5,8,14,.96)); z-index: 10; }
   #menu.off { display: none; }
-  .card { width: min(560px, 92vw); background: rgba(18,26,40,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 26px 30px; box-shadow: 0 30px 100px rgba(0,0,0,.7); }
+  .card { width: min(620px, 94vw); max-height: 96vh; overflow-y: auto; background: rgba(18,26,40,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 26px 30px; box-shadow: 0 30px 100px rgba(0,0,0,.7); }
   .card h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: -.01em; } .card h1 span { color: #ffd24a; }
   .card p.sub { margin: 0 0 18px; color: #9aa9bd; font-size: 14px; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 14px; }
   .seg { display: flex; gap: 6px; } .seg button { background: #1d2a3f; color: #cfd9e6; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 13px; font: inherit; cursor: pointer; }
   .seg button.on { background: #ffd24a; color: #111; border-color: #ffd24a; font-weight: 700; }
+  .info { font-size: 13px; color: #b8c6d8; margin: -2px 0 8px; line-height: 1.5; } .info b { color: #ffd24a; }
   #bikeinfo { font-size: 13px; color: #b8c6d8; margin: -2px 0 8px; line-height: 1.5; } #bikeinfo b { color: #ffd24a; } .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px; font-size: 11px; color: #8696ab; } .stats span { display: block; } .stats i { display: block; height: 5px; margin-top: 3px; border-radius: 3px; background: #4cc2ff; }
   .seg { flex-wrap: wrap; justify-content: flex-end; }
   #go { width: 100%; margin-top: 18px; padding: 13px; font: 800 18px system-ui; border: 0; border-radius: 10px; background: #3ddc84; color: #06210f; cursor: pointer; } #go:hover { filter: brightness(1.08); }
@@ -50,8 +51,10 @@
 <div id="menu"><div class="card">
   <h1>Bike <span>Race</span></h1>
   <p class="sub">Race through a busy city. Dodge traffic and people, and stay out of the police's way.</p>
+  <div class="row"><span>Map</span><div class="seg" data-k="map"></div></div>
+  <div id="mapinfo" class="info"></div>
   <div class="row"><span>Bike</span><div class="seg" data-k="bike"></div></div>
-  <div id="bikeinfo"></div>
+  <div id="bikeinfo" class="info"></div>
   <div class="row"><span>Mode</span><div class="seg" data-k="mode"><button data-v="race" class="on">Race</button><button data-v="free">Free ride</button></div></div>
   <div class="row"><span>Police</span><div class="seg" data-k="police"><button data-v="1" class="on">On</button><button data-v="0">Off</button></div></div>
   <div class="row"><span>Traffic and people</span><div class="seg" data-k="traffic"><button data-v="0">Empty</button><button data-v="1" class="on">Normal</button><button data-v="2">Busy</button></div></div>

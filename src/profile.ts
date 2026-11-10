@@ -1,7 +1,7 @@
 /** The player's profile, kept in the browser (localStorage): name, level, career stats, recent races. */
 const KEY = 'bikerace.profile.v1';
 
-export interface RaceResult { t: number; map: string; bike: string; pos: number; of: number; time: number; dnf: boolean }
+export interface RaceResult { t: number; map: string; bike: string; pos: number; of: number; time: number; dnf: boolean; diff?: string }
 export interface Profile {
   name: string; xp: number; coins: number; owned: string[];
   races: number; wins: number; podiums: number; dnf: number;
@@ -24,7 +24,7 @@ function load(): Profile {
     if (Array.isArray(o.owned)) p.owned = [...new Set([...STARTERS, ...o.owned.filter((x: unknown) => typeof x === 'string').map((x: string) => x.slice(0, 16))])].slice(0, 20);
     for (const k of ['xp', 'races', 'wins', 'podiums', 'dnf', 'distanceKm', 'playSec', 'topKmh', 'knockdowns', 'fallen', 'wrecks', 'busted', 'pedHits', 'loot'] as const) p[k] = num(o[k]);
     if (o.bikeUse && typeof o.bikeUse === 'object') for (const [k, v] of Object.entries(o.bikeUse)) p.bikeUse[String(k).slice(0, 16)] = num(v);
-    if (Array.isArray(o.history)) p.history = o.history.slice(0, 10).filter((h: RaceResult) => h && typeof h.map === 'string').map((h: RaceResult) => ({ t: num(h.t), map: String(h.map).slice(0, 16), bike: String(h.bike).slice(0, 16), pos: num(h.pos), of: num(h.of), time: num(h.time), dnf: !!h.dnf }));
+    if (Array.isArray(o.history)) p.history = o.history.slice(0, 10).filter((h: RaceResult) => h && typeof h.map === 'string').map((h: RaceResult) => ({ t: num(h.t), map: String(h.map).slice(0, 16), bike: String(h.bike).slice(0, 16), pos: num(h.pos), of: num(h.of), time: num(h.time), dnf: !!h.dnf, diff: typeof h.diff === 'string' ? h.diff.slice(0, 8) : undefined }));
   } catch { /* a fresh profile */ }
   return p;
 }
@@ -49,23 +49,23 @@ export function setName(n: string) { profile.name = cleanName(n); changed(); }
 function addXp(n: number): boolean { const before = levelOf(profile.xp); profile.xp += Math.max(0, Math.round(n)); return levelOf(profile.xp) > before; }
 
 /** A race finished (or ended as a DNF). Returns the XP earned and whether the player levelled up. */
-export function recordRace(r: Omit<RaceResult, 't'>): { xp: number; coins: number; levelUp: boolean } {
+export function recordRace(r: Omit<RaceResult, 't'>, mult = 1): { xp: number; coins: number; levelUp: boolean } {
   profile.races++; if (r.dnf) profile.dnf++; else { if (r.pos === 1) profile.wins++; if (r.pos <= 3) profile.podiums++; }
   const field = Math.max(1, r.of - 1);                         // bigger fields are worth more
-  const xp = r.dnf ? 10 : 50 + Math.round((r.pos === 1 ? 200 : r.pos === 2 ? 120 : r.pos === 3 ? 70 : 30) * (0.5 + Math.min(field, 8) / 8));
+  const xp = Math.round((r.dnf ? 10 : 50 + Math.round((r.pos === 1 ? 200 : r.pos === 2 ? 120 : r.pos === 3 ? 70 : 30) * (0.5 + Math.min(field, 8) / 8))) * mult);
   profile.history.unshift({ ...r, t: Date.now() }); profile.history.length = Math.min(profile.history.length, 10);
-  const coins = r.dnf ? 0 : 100 + Math.round((r.pos === 1 ? 400 : r.pos === 2 ? 250 : r.pos === 3 ? 150 : 50) * (0.5 + Math.min(field, 8) / 8));
+  const coins = Math.round((r.dnf ? 0 : 100 + Math.round((r.pos === 1 ? 400 : r.pos === 2 ? 250 : r.pos === 3 ? 150 : 50) * (0.5 + Math.min(field, 8) / 8))) * mult);
   profile.coins += coins;
   const levelUp = addXp(xp); changed(); return { xp, coins, levelUp };
 }
 
 /** The distance, fights and so on of one ride, added when the ride ends. Returns XP earned and whether the level went up. */
-export function recordRun(s: RunStats, bike: string): { xp: number; coins: number; levelUp: boolean } {
+export function recordRun(s: RunStats, bike: string, mult = 1): { xp: number; coins: number; levelUp: boolean } {
   profile.distanceKm += s.dist / 1000; profile.playSec += s.sec; profile.topKmh = Math.max(profile.topKmh, s.top);
   profile.knockdowns += s.ko; profile.fallen += s.fell; profile.wrecks += s.wrecks; profile.busted += s.busted; profile.pedHits += s.ped; profile.loot += s.loot;
   if (s.sec > 20) profile.bikeUse[bike] = (profile.bikeUse[bike] ?? 0) + 1;
-  const xp = s.ko * 10 + Math.round(s.dist / 1000 * 20) + s.loot * 2;
-  const coins = s.coins + s.ko * 15; profile.coins += coins;
+  const xp = Math.round((s.ko * 10 + Math.round(s.dist / 1000 * 20) + s.loot * 2) * mult);
+  const coins = Math.round((s.coins + s.ko * 15) * mult); profile.coins += coins;
   const levelUp = addXp(xp); changed(); return { xp, coins, levelUp };
 }
 

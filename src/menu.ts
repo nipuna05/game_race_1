@@ -9,7 +9,7 @@ const QS = new URLSearchParams(location.search);
 const OPT_KEY = 'bikerace.opts.v1';
 
 /** The player's choices. Saved in the browser; the query string can override them for quick tests (?map=neon&bike=hyper&police=0). */
-export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3', steer: '100' };
+export const opt: Record<string, string> = { map: 'downtown', bike: 'street', color: '', field: 'same', mode: 'race', police: '1', traffic: '1', laps: '2', rivals: '3', steer: '100', diff: 'normal' };
 try { Object.assign(opt, JSON.parse(localStorage.getItem(OPT_KEY) || '{}')); } catch { /* defaults */ }
 for (const k of Object.keys(opt)) if (QS.has(k)) opt[k] = QS.get(k)!;
 const save = () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(opt)); } catch { /* ignore */ } };
@@ -86,6 +86,8 @@ function render() {
     const b = bikeDef(), m = mapDef(), best = loadBest();
     h = `<h2>Play</h2>
       <div class="mini"><div class="tile" data-go="garage"><small>Bike</small><b>${b.name}</b><span>${b.cc} cc &middot; ${b.category}</span></div><div class="tile" data-go="maps"><small>Map</small><b>${m.name}</b><span>${m.desc.split('.')[0]}</span></div></div>
+      ${seg('diff', 'Difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']])}
+      <div class="desc" style="margin:-4px 0 8px;font-size:14px">${{ easy: 'Slower rivals and police, 5 respawns, forgiving crashes. Rewards x0.7.', normal: 'The standard challenge. Rewards x1.', hard: 'Fast aggressive rivals who use boost, quicker police, 2 respawns, harsh crashes. Rewards x1.5.' }[opt.diff] ?? ''}</div>
       ${seg('mode', 'Mode', [['race', 'Race'], ['free', 'Free ride']])}
       ${seg('police', 'Police', [['1', 'On'], ['0', 'Off']])}
       ${seg('traffic', 'Traffic and people', [['0', 'Empty'], ['1', 'Normal'], ['2', 'Busy']])}
@@ -140,7 +142,7 @@ function render() {
         ${box(profile.coins.toLocaleString(), 'Coins')}${box(`${BIKES.filter((x) => owns(x.id)).length} / ${BIKES.length}`, 'Bikes owned')}${box(String(profile.owned.length), 'Collection')}</div>
       <h3>Favourite bike</h3><div class="list"><div><span>${favName}</span><em>${fav ? profile.bikeUse[fav] + ' rides' : ''}</em></div></div>
       <h3>Best times</h3><div class="list">${MAPS.map((mp) => { const bt = loadBest(mp.id); return `<div><span>${mp.name}</span><em>${bt ? fmt(bt) : '<span class="dim">-</span>'}</em></div>`; }).join('')}</div>
-      <h3>Recent races</h3><div class="list">${profile.history.length ? profile.history.slice(0, 6).map((r) => `<div><span>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${BIKES.find((x) => x.id === r.bike)?.name ?? r.bike}</span><em>${r.dnf ? 'DNF' : `${r.pos}/${r.of} &middot; ${fmt(r.time)}`}</em></div>`).join('') : '<div class="dim">No races yet</div>'}</div>
+      <h3>Recent races</h3><div class="list">${profile.history.length ? profile.history.slice(0, 6).map((r) => `<div><span>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${BIKES.find((x) => x.id === r.bike)?.name ?? r.bike}</span><em>${r.dnf ? 'DNF' : `${r.pos}/${r.of} &middot; ${fmt(r.time)}`}${r.diff && r.diff !== 'normal' ? ` &middot; ${r.diff}` : ''}</em></div>`).join('') : '<div class="dim">No races yet</div>'}</div>
       <button class="danger" id="resetp">Reset profile</button>`;
   } else if (tab === 'controls') {
     const k = (...a: string[]) => a.map((x) => `<kbd>${x}</kbd>`).join('');
@@ -160,7 +162,7 @@ function render() {
 function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLElement>('.seg').forEach((s) => s.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return; opt[s.dataset.k!] = b.dataset.v!; save();
-    if (s.dataset.k === 'mode') render(); else s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    if (s.dataset.k === 'mode' || s.dataset.k === 'diff') render(); else s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
   }));
   p.querySelectorAll<HTMLElement>('[data-go]').forEach((t) => t.addEventListener('click', () => setTab(t.dataset.go as Tab, true)));
   p.querySelectorAll<HTMLElement>('[data-bike]').forEach((c) => c.addEventListener('click', () => { viewId = c.dataset.bike!; if (owns(viewId)) { opt.bike = viewId; save(); sound.setBike(bikeDef().cc); syncMe(); } render(); hooks.preview(); }));

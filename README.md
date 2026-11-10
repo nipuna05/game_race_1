@@ -39,6 +39,18 @@ On the home page, ONLINE: one player creates a room and shares the 4-letter code
 
 Each page simulates its own bike and the server relays the states, picks the start time and a shared seed, and keeps the room (`server/index.ts`, messages in `shared/protocol.ts`). On a home network the game page uses the same PC for the server, so friends just open the page address.
 
+## Difficulty
+
+PLAY has Easy, Normal and Hard (single player; online races always use Normal).
+
+| | Easy | Normal | Hard |
+| --- | --- | --- | --- |
+| Rival riders | slower, brake early, rarely fight | standard | faster, use boost, fight often |
+| Police | 20% slower, bust after 3 s, wanted level drops fast | standard | 20% faster, bust after 1.3 s, one extra chaser, wanted level drops slowly |
+| Respawns in a race | 5 (+5 s each) | 3 (+8 s) | 2 (+12 s) |
+| Crashes | wreck only at very high impact | standard | wreck sooner |
+| XP and coins | x0.7 | x1 | x1.5 |
+
 ## Steering
 
 Bikes turn sharper than before, the bars ease towards your keys (a quick tap turns a little), and leaning hard into a turn at speed scrubs some speed so junctions can be taken without braking first. SETTINGS has a Steering slider (60-160%) for people who find it too slow or too sharp.

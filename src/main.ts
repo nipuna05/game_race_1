@@ -99,6 +99,13 @@ function padMat(): THREE.MeshBasicMaterial {
 
 const BOT_NAMES = ['Blaze', 'Viper', 'Rocket', 'Nitro', 'Ghost', 'Turbo', 'Rogue', 'Drift', 'Hawk', 'Storm', 'Maverick', 'Bolt'];
 interface Rider { bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean; remote?: boolean; netId?: number; tgt?: RiderState; lastSw?: number }
+/** What Easy, Normal and Hard change. Online races always use Normal. */
+interface Diff { label: string; corner: number; skill: [number, number]; aiGap: [number, number]; aiBoost: boolean; police: { spd: number; bust: number; decay: number; heat: number; extra: number }; lives: number; respawnPen: number; bustPen: number; wreckImpact: number; reward: number }
+const DIFFS: Record<string, Diff> = {
+  easy: { label: 'Easy', corner: 0.85, skill: [0.74, 0.84], aiGap: [3, 6], aiBoost: false, police: { spd: 0.8, bust: 3, decay: 1.4, heat: 0.7, extra: 0 }, lives: 5, respawnPen: 5, bustPen: 6, wreckImpact: 28, reward: 0.7 },
+  normal: { label: 'Normal', corner: 1, skill: [0.9, 0.99], aiGap: [1.2, 3], aiBoost: false, police: { spd: 1, bust: 2, decay: 1, heat: 1, extra: 0 }, lives: 3, respawnPen: 8, bustPen: 10, wreckImpact: 22, reward: 1 },
+  hard: { label: 'Hard', corner: 1.1, skill: [1.04, 1.14], aiGap: [0.7, 1.8], aiBoost: true, police: { spd: 1.2, bust: 1.3, decay: 0.6, heat: 1.3, extra: 1 }, lives: 2, respawnPen: 12, bustPen: 14, wreckImpact: 19, reward: 1.5 },
+};
 interface MpCfg { you: number; players: PlayerInfo[]; seed: number; inMs: number; settings: Settings }
 /** A small seeded random generator: every player gets the same crates and boost pads. */
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -117,7 +124,7 @@ class Game {
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
-  lives = 3; fallTimes: number[] = [];
+  lives = 3; maxLives = 3; D: Diff = DIFFS.normal; fallTimes: number[] = [];
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
   mp: MpCfg | null = null; rand: () => number = Math.random; sendAcc = 0; hitAt = new Map<number, number>();
   st: RunStats = { dist: 0, top: 0, ko: 0, fell: 0, wrecks: 0, busted: 0, ped: 0, loot: 0, coins: 0, sec: 0 }; committed = false; resultDone = false;
@@ -125,6 +132,7 @@ class Game {
   constructor(mp: MpCfg | null = null) {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
     if (mp) { this.mode = 'race'; this.laps = mp.settings.laps; this.police = false; this.traffic = 0; }
+    this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
     this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
@@ -134,7 +142,7 @@ class Game {
       for (let i = 0; i < Number(opt.rivals); i++) {
         const rd = opt.field === 'mixed' ? BIKES[(Math.random() * BIKES.length) | 0] : mine;
         const r: Rider = { bike: new Bike(cols[i % cols.length], rd), passed: 0, finishedAt: 0, name: BOT_NAMES[i % BOT_NAMES.length], lane: rnd(2, 4.5), isPlayer: false };
-        r.bike.skill = rnd(0.9, 0.99); scene.add(r.bike.mesh.root); this.riders.push(r);
+        r.bike.skill = rnd(this.D.skill[0], this.D.skill[1]); scene.add(r.bike.mesh.root); this.riders.push(r);
       }
     }
     const tm = mapDef().traffic, nCars = Math.round([0, 36, 72][this.traffic] * tm), nPeds = Math.round([0, 60, 130][this.traffic] * tm), nPol = this.police ? [2, 3, 5][this.traffic] : 0;
@@ -237,7 +245,7 @@ class Game {
     let seen = this.heat > 0;
     for (const a of this.agents) if (a.kind === 'police' && Math.hypot(a.x - b.x, a.z - b.z) < 110) seen = true;
     if (!seen) return;
-    const was = Math.ceil(this.heat); this.heat = Math.min(5, this.heat + amount);
+    const was = Math.ceil(this.heat); this.heat = Math.min(5, this.heat + amount * this.D.police.heat);
     if (Math.ceil(this.heat) > was) toast(`Police alerted: ${why}`, 1400, '#ff7a7a');
   }
 
@@ -261,7 +269,8 @@ class Game {
         if (r.isPlayer) inp = readInput();
         else {
           const to = this.nextNode(r), from = node(r.passed - 1);
-          inp = aiInput(b, from.x, from.z, to.x, to.z, r.lane, 1);
+          inp = aiInput(b, from.x, from.z, to.x, to.z, r.lane, this.D.corner);
+          if (this.D.aiBoost && b.boostLeft > 0.35 && Math.abs(inp.steer) < 0.3) inp.boost = true;   // hard riders use their boost on the straights
           this.aiFight(r, dt);
         }
       }
@@ -271,7 +280,7 @@ class Game {
         toast('You fell off! Getting up...', 1600, '#ffb36b');
         if (this.playerFell()) return;
       }
-      if (r.isPlayer && impact > 22) { this.wreck('Hit something at full speed'); return; }
+      if (r.isPlayer && impact > this.D.wreckImpact) { this.wreck('Hit something at full speed'); return; }
       if (live && b.fall <= 0) this.pickups(r);
       if (r.isPlayer && impact > 5) { sound.thump(impact); if (impact > 12) { flash(); this.crime(0.7, 'crash'); } }
       if (this.mode === 'race' && live) {
@@ -309,7 +318,7 @@ class Game {
 
     // traffic, people, police
     const pl = { x: me.x, z: me.z, speed: me.speed };
-    const wantChasers = this.police && this.heat > 0 ? Math.min(5, 1 + Math.floor(this.heat)) : 0;
+    const wantChasers = this.police && this.heat > 0 ? Math.min(6, 1 + Math.floor(this.heat) + this.D.police.extra) : 0;
     let chasers = 0, closest = 999, speedTrap = false;
     for (const a of this.agents) {
       const wasDown = a.down > 0;
@@ -325,10 +334,10 @@ class Game {
       if (speedTrap) this.crime(dt * 0.5, 'speeding');
       if (chasers < wantChasers) this.sendChaser();
       if (this.heat > 0) {
-        this.heat = Math.max(0, this.heat - dt * (closest < 70 ? 0.02 : 0.1));
+        this.heat = Math.max(0, this.heat - dt * (closest < 70 ? 0.02 : 0.1) * this.D.police.decay);
         if (this.heat <= 0) { this.endChase(); toast('You lost the police', 1800, '#8affb0'); }
       }
-      if (closest < 5 && me.speed < 12 && chasers > 0) { this.bust += dt; if (this.bust > 2) this.busted(); } else this.bust = Math.max(0, this.bust - dt);
+      if (closest < 5 && me.speed < 12 && chasers > 0) { this.bust += dt; if (this.bust > this.D.police.bust) this.busted(); } else this.bust = Math.max(0, this.bust - dt);
     }
     this.collideAgents(dt);
     if (this.player.bike.fall <= 0) this.collectCoins();
@@ -354,7 +363,7 @@ class Game {
   }
   endChase() { for (const a of this.agents) if (a.mode === 'chase') a.placeOnRoad(this.player.bike, 140); this.bust = 0; }
   busted() {
-    this.st.busted++; toast('BUSTED! +10 s', 2500, '#ff6b6b'); this.penalty += 10; this.raceT += 10; this.heat = 0; this.endChase(); this.bust = 0;
+    this.st.busted++; toast(`BUSTED! +${this.D.bustPen} s`, 2500, '#ff6b6b'); this.penalty += this.D.bustPen; this.raceT += this.D.bustPen; this.heat = 0; this.endChase(); this.bust = 0;
     const b = this.player.bike, back = this.mode === 'race' ? node(this.player.passed - 1) : { x: 0, z: 0 };
     b.x = back.x; b.z = back.z; b.speed = 0; b.lat = 0;
     if (this.mode === 'race') { const to = node(this.player.passed); b.h = Math.atan2(to.x - back.x, to.z - back.z); } this.resetPlayer();
@@ -378,7 +387,7 @@ class Game {
         // cars: push out, lose speed
         const nx = dx / d, nz = dz / d, push = rr - d; b.x += nx * push; b.z += nz * push;
         const f = b.fwd, closing = -(f.x * nx + f.z * nz) * b.speed + (Math.sin(a.h) * nx + Math.cos(a.h) * nz) * a.speed;
-        if (closing > 4) { if (r.isPlayer) { sound.thump(closing); flash(); if (a.kind !== 'police') this.crime(0.6, 'crash'); if (closing > 24) { this.wreck(a.kind === 'police' ? 'Rammed by the police' : 'Slammed into a car'); return; } } b.speed *= 0.5; a.stun = 0.8; }
+        if (closing > 4) { if (r.isPlayer) { sound.thump(closing); flash(); if (a.kind !== 'police') this.crime(0.6, 'crash'); if (closing > this.D.wreckImpact + 2) { this.wreck(a.kind === 'police' ? 'Rammed by the police' : 'Slammed into a car'); return; } } b.speed *= 0.5; a.stun = 0.8; }
         else b.speed *= 1 - 0.8 * dt;
         void dt;
       }
@@ -438,7 +447,7 @@ class Game {
     for (const o of this.riders) {
       if (o === r || o.bike.fall > 0) continue;
       const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * b.fwd.x + dz * b.fwd.z, rr = dx * -Math.cos(b.h) + dz * Math.sin(b.h);
-      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, rnd(1.2, 3)); return; }
+      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, rnd(this.D.aiGap[0], this.D.aiGap[1])); return; }
     }
     this.aiCd.set(r, 0.2);
   }
@@ -513,26 +522,26 @@ class Game {
     return false;
   }
   /** Adds this ride's stats to the profile (once). */
-  commit() { if (this.committed) return; this.committed = true; if (this.st.sec > 3) recordRun(this.st, opt.bike); }
+  commit() { if (this.committed) return; this.committed = true; if (this.st.sec > 3) recordRun(this.st, opt.bike, this.D.reward); }
 
   /** The bike is wrecked: freeze the game and offer to respawn (while you have respawns left), retry or leave. */
   wreck(reason: string) {
     if (ui !== 'play' || this.phase === 'done') return;
     const race = this.mode === 'race', out = race && this.lives <= 0;
     this.st.wrecks++;
-    if (out && !this.resultDone) { this.resultDone = true; recordRace({ map: opt.map, bike: opt.bike, pos: this.riders.length, of: this.riders.length, time: this.raceT, dnf: true }); }
+    if (out && !this.resultDone) { this.resultDone = true; recordRace({ map: opt.map, bike: opt.bike, pos: this.riders.length, of: this.riders.length, time: this.raceT, dnf: true, diff: this.mp ? undefined : opt.diff }, this.D.reward); }
     ui = 'wreck'; sound.engine(false); sound.fall(); flash();
     $('w-title').textContent = out ? 'DNF' : 'WRECKED';
     $('w-why').textContent = out ? `${reason}. You are out of respawns.` : reason;
-    $('w-lives').innerHTML = race ? `<span>${'\u2665'.repeat(this.lives)}</span><s>${'\u2665'.repeat(3 - this.lives)}</s>` : '';
-    const rs = $('w-respawn') as HTMLButtonElement; rs.disabled = out; rs.textContent = race ? `RESPAWN (+8 s)` : 'RESPAWN';
+    $('w-lives').innerHTML = race ? `<span>${'\u2665'.repeat(this.lives)}</span><s>${'\u2665'.repeat(this.maxLives - this.lives)}</s>` : '';
+    const rs = $('w-respawn') as HTMLButtonElement; rs.disabled = out; rs.textContent = race ? `RESPAWN (+${this.D.respawnPen} s)` : 'RESPAWN';
     ($('w-retry') as HTMLElement).textContent = race ? 'RETRY RACE' : 'RESTART'; ($('w-retry') as HTMLElement).style.display = this.mp ? 'none' : '';
     $('wreck').classList.add('on');
   }
   /** Back on the road at the last checkpoint, bike repaired. */
   respawn() {
     const race = this.mode === 'race', me = this.player, b = me.bike;
-    if (race) { this.lives--; this.raceT += 8; this.penalty += 8; }
+    if (race) { this.lives--; this.raceT += this.D.respawnPen; this.penalty += this.D.respawnPen; }
     b.fall = 0; b.balance = 1; b.turbo = b.shield = b.power = b.padT = 0; b.inv = 2.2; b.crash = 0; b.speed = 0; b.lat = 0; this.fallTimes = [];
     this.heat = 0; this.endChase(); this.bust = 0;
     if (race) {
@@ -549,7 +558,7 @@ class Game {
     const rk = this.rank(); const t = this.raceT;
     const best = loadBest(); let note = '';
     if (!best || t < best) { saveBest(t); note = '  New best!'; }
-    if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false }); note += `  +${rr.xp} XP  +${rr.coins} coins${rr.levelUp ? '  LEVEL UP!' : ''}`; }
+    if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false, diff: this.mp ? undefined : opt.diff }, this.D.reward); note += `  +${rr.xp} XP  +${rr.coins} coins${rr.levelUp ? '  LEVEL UP!' : ''}`; }
     if (this.mp) net.fin(t);
     sound.fanfare();
     toast(`Finished ${rk}${['st', 'nd', 'rd'][rk - 1] ?? 'th'}  ${fmt(t)}${note}`, 6000, '#ffd24a');
@@ -574,7 +583,7 @@ class Game {
     ($('boostfill') as HTMLElement).style.width = `${Math.round(b.boostLeft * 100)}%`;
     if (this.mode === 'race') {
       const lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), tm = this.phase === 'done' ? this.player.finishedAt : this.raceT;
-      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span> &nbsp;<span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(3 - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
+      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span> &nbsp;<span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(this.maxLives - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
     } else $('race').innerHTML = `<b>Free ride</b><br>Explore the city<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span>`;
     const ps: string[] = [];
     if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);

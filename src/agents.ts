@@ -14,6 +14,8 @@ const lightGeo = new THREE.BoxGeometry(0.5, 0.25, 0.4);
 
 /** One thing that moves around the city: a car, a walking person or a police car (which can leave its lane and chase). */
 export class Agent {
+  /** Difficulty: how fast police chasers are, compared with normal. */
+  static pol = 1;
   kind: Kind; mesh: THREE.Group;
   axis: 'x' | 'z' = 'x'; dir: 1 | -1 = 1; line = 0; pos = 0;           // lane following
   x = 0; z = 0; h = 0; speed = 0; max: number; radius: number;
@@ -85,7 +87,7 @@ export class Agent {
       if (Math.hypot(player.x - this.x, player.z - this.z) < 30) { this.free = true; return this.updateChase(dt, player, t); }
       if (this.free) { this.free = false; this.snapToRoad(); }
       this.goal = player;       // far away: follow the streets, turning towards the player at each junction
-      this.speed += clamp((this.stun > 0 ? 0 : 31) - this.speed, -30 * dt, 12 * dt);
+      this.speed += clamp((this.stun > 0 ? 0 : 31 * Agent.pol) - this.speed, -30 * dt, 12 * dt);
       this.advance(this.speed * dt); this.follow(dt, 9);
       const on = Math.floor(t * 8) % 2 === 0;
       (this.siren[0].material as THREE.MeshBasicMaterial).color.setHex(on ? 0xff2222 : 0x330000); (this.siren[1].material as THREE.MeshBasicMaterial).color.setHex(on ? 0x001133 : 0x2266ff);
@@ -112,7 +114,7 @@ export class Agent {
     const dx = player.x - this.x, dz = player.z - this.z, want = Math.atan2(dx, dz);
     let dh = want - this.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
     this.h += clamp(dh, -2.2 * dt, 2.2 * dt);
-    const dist = Math.hypot(dx, dz), top = 38;
+    const dist = Math.hypot(dx, dz), top = 38 * Agent.pol;
     this.speed += clamp((this.stun > 0 ? 0 : top) - this.speed, -30 * dt, 15 * dt);
     this.x += Math.sin(this.h) * this.speed * dt; this.z += Math.cos(this.h) * this.speed * dt;
     const c = collideWorld(this, 2.1);

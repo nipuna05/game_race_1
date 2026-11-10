@@ -24,6 +24,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build -- --base=/${{ github.event.repository.name }}/
+        env:
+          VITE_WS_URL: wss://game-race-1.fly.dev   # the multiplayer server on Fly.io (see fly.toml)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

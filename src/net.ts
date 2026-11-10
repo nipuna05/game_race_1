@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { PROTOCOL_VERSION, type C2S, type S2C, type PlayerInfo, type Settings, type RiderState, type ResultRow } from '../shared/protocol';
 
 /** The connection to the multiplayer server and the room you are in. */
@@ -16,7 +17,13 @@ export interface NetHandlers {
 
 const URL_KEY = 'bikerace.server.v1';
 /** Default server: the same machine that served the page, port 8090 (so people on the network get it automatically). */
-export const defaultServer = () => { try { const s = localStorage.getItem(URL_KEY); if (s) return s; } catch { /* ignore */ } return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:8090`; };
+/** The public server (set when the website is built, see .github/workflows/pages.yml): used by the https website, which may only use secure sockets. */
+const PUBLIC_SERVER = (import.meta.env.VITE_WS_URL as string | undefined) || '';
+export const defaultServer = () => {
+  try { const s = localStorage.getItem(URL_KEY); if (s) return s; } catch { /* ignore */ }
+  if (location.protocol === 'https:' && PUBLIC_SERVER) return PUBLIC_SERVER;
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:8090`;
+};
 
 export const net = {
   ws: null as WebSocket | null, lobby: null as Lobby | null, status: 'off' as 'off' | 'connecting' | 'on', error: '', url: '',

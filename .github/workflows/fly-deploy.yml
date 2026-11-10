@@ -1,0 +1,34 @@
+# Redeploys the multiplayer game server on Fly.io whenever the server, the shared message definitions or the container settings change,
+# so the server and the GitHub Pages site never run different versions. Changes to menus, models and the like do not touch the server.
+#
+# One-time setup: create a deploy token for the app (Fly dashboard > your app > Tokens > "Create deploy token", or `flyctl tokens create deploy -a game-race-1`)
+# and save it in this repository as the secret FLY_API_TOKEN (Settings > Secrets and variables > Actions > New repository secret).
+# Until that secret exists this workflow does nothing (it is skipped, not failed).
+name: Deploy game server to Fly.io
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'shared/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+  workflow_dispatch:
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      HAS_TOKEN: ${{ secrets.FLY_API_TOKEN != '' }}
+    steps:
+      - if: env.HAS_TOKEN != 'true'
+        run: echo "FLY_API_TOKEN is not set, so the server is not redeployed (see the comment at the top of this file)."
+      - if: env.HAS_TOKEN == 'true'
+        uses: actions/checkout@v4
+      - if: env.HAS_TOKEN == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - if: env.HAS_TOKEN == 'true'
+        run: flyctl deploy --remote-only

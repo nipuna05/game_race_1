@@ -1,0 +1,21 @@
+# Fly.io settings for the Bike Race multiplayer server (see README, "Putting multiplayer on the internet").
+# `app` must match the app created on Fly (names are global): change it here if your app has another name.
+app = "game-race-1"
+primary_region = "sin"          # Singapore, the closest Fly region to Sri Lanka
+
+[build]
+
+[env]
+  PORT = "8090"
+  ALLOWED_ORIGINS = "https://nipuna05.github.io,http://localhost:5180,http://localhost:5181"   # only the GitHub page (and local development) may connect
+
+[http_service]
+  internal_port = 8090
+  force_https = true            # players connect with wss:// (secure WebSocket) on port 443
+  auto_stop_machines = "off"    # keep it running so a room is always available
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

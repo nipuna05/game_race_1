@@ -60,6 +60,16 @@ PLAY has Easy, Normal and Hard (single player; online races always use Normal).
 
 Bikes turn sharper than before, the bars ease towards your keys (a quick tap turns a little), and leaning hard into a turn at speed scrubs some speed so junctions can be taken without braking first. SETTINGS has a Steering slider (60-160%) for people who find it too slow or too sharp.
 
+## Putting multiplayer on the internet (Fly.io)
+
+The same server runs on Fly.io, so friends anywhere can join from the GitHub Pages site. The Fly app is `game-race-1` (`https://game-race-1.fly.dev`).
+
+1. Deploy: `flyctl deploy -a game-race-1` (builds the `Dockerfile`, Singapore region, one small machine that stays on).
+   Do not use Fly's auto-generated Dockerfile for this repo: it serves the files as a static website, not the game server.
+2. Automatic redeploys: create a deploy token (`flyctl tokens create deploy -a game-race-1`) and save it in the repository as the secret `FLY_API_TOKEN`. After that, every change to `server/`, `shared/`, `Dockerfile` or `fly.toml` redeploys the server.
+3. The website uses `wss://game-race-1.fly.dev` by default (set in the Pages workflow); on a home network the page still uses the same PC on port 8090.
+4. Check it works: open `https://game-race-1.fly.dev` in a browser (a working game server answers "Upgrade Required"), then create a room on the website.
+
 ## Bikes and maps
 
 - **10 bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Vespa 150cc, Mini Chopper 300cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.

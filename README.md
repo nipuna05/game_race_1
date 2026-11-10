@@ -94,6 +94,10 @@ A very hard hit (a building or car at full speed, or a police ram), or being kno
 
 Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.
 
+## Finish screen
+
+When you cross the line in a race, a finish screen shows your place (a big gold, silver or bronze 1st, 2nd or 3rd), your time and your best on the map, the standings (finished riders by time, the rest by how far along they are), the coins and XP you earned, and Play again / Main menu. In an online race it shows while the others are still racing, then the final results replace it.
+
 ## Traffic vehicles
 
 The cars on the road are built in code to look like real vehicles, with windows and pillars, wheels, grilles, lights, mirrors and number plates: sedans, hatchbacks, SUVs, taxis, vans, pickup trucks, city buses (with a route sign) and police cruisers (with a light bar). Colours are real car colours. Their collision shape follows their length, so a long bus is hit along its side instead of as a circle.

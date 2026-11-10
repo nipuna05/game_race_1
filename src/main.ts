@@ -274,7 +274,16 @@ class Game {
   nextNode(r: Rider) { return node(r.passed); }
 
   progress(r: Rider) { const n = this.nextNode(r), d = Math.hypot(n.x - r.bike.x, n.z - r.bike.z); return r.passed * 10000 - d; }
-  rank(): number { const mine = this.progress(this.player); let rk = 1; for (const r of this.riders) if (r !== this.player && !this.eliminated.has(r) && (r.finishedAt && !this.player.finishedAt ? true : this.progress(r) > mine)) rk++; return rk; }
+  /** Your place: riders who already finished before you are ahead; until you finish, finished riders and those further along the route are ahead. */
+  rank(): number {
+    const me = this.player; let rk = 1;
+    for (const r of this.riders) {
+      if (r === me || this.eliminated.has(r)) continue;
+      if (me.finishedAt) { if (r.finishedAt && r.finishedAt < me.finishedAt) rk++; }
+      else if (r.finishedAt || this.progress(r) > this.progress(me)) rk++;
+    }
+    return rk;
+  }
 
   crime(amount: number, why: string) {
     if (!this.police) return;
@@ -657,14 +666,19 @@ class Game {
   finish() {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     if (this.mode === 'trial') { this.finishTrial(); return; }
-    const rk = this.rank(); const t = this.raceT;
+    const rk = this.rank(), t = this.raceT;
     bump('finish', 1); if (rk === 1 && this.riders.length > 1) bump('win', 1);
-    const best = loadBest(); let note = '';
-    if (!best || t < best) { saveBest(t); note = '  New best!'; }
-    if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false, diff: this.mp ? undefined : opt.diff }, this.D.reward); note += `  +${rr.xp} XP  +${rr.coins} coins${rr.levelUp ? '  LEVEL UP!' : ''}`; }
+    const best = loadBest(); let isBest = false, earned = '';
+    if (!best || t < best) { saveBest(t); isBest = true; }
+    if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false, diff: this.mp ? undefined : opt.diff }, this.D.reward); earned = `+${rr.coins} coins  +${rr.xp} XP${rr.levelUp ? '  LEVEL UP!' : ''}`; }
     if (this.mp) net.fin(t);
-    sound.fanfare();
-    toast(`Finished ${rk}${['st', 'nd', 'rd'][rk - 1] ?? 'th'}  ${fmt(t)}${note}`, 6000, '#ffd24a');
+    // the standings: those who have finished by their time, the rest by how far along they are
+    const order = this.riders.filter((r) => !this.eliminated.has(r)).sort((p, q) => (p.finishedAt && q.finishedAt) ? p.finishedAt - q.finishedAt : p.finishedAt ? -1 : q.finishedAt ? 1 : this.progress(q) - this.progress(p));
+    const rows: [string, string][] = [['Your time', fmt(t) + (isBest ? '  NEW BEST!' : '')], ['Best on this map', fmt(isBest ? t : best)]];
+    order.slice(0, 8).forEach((r, i) => rows.push([`${i + 1}. ${r.name}${r.isPlayer ? ' (you)' : ''}`, r.finishedAt ? fmt(r.finishedAt) : 'still racing']));
+    const suffix = ['st', 'nd', 'rd'][rk - 1] ?? 'th';
+    this.showResult(rk === 1 ? 'YOU WON!' : rk <= 3 ? 'ON THE PODIUM!' : 'RACE FINISHED', rows, this.mp ? `${earned}<br><span style="color:#8fb0d0;font-size:14px">Waiting for the other riders...</span>` : earned, { text: `${rk}${suffix}`, cls: rk === 1 ? 'gold' : rk === 2 ? 'silver' : rk === 3 ? 'bronze' : '' });
+    if (this.mp) { ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'LEAVE ROOM'; }
   }
 
   updateCamera(dt: number, snap: boolean) {
@@ -769,8 +783,8 @@ class Game {
   routeLength(): number { let sum = 0; for (let k = 0; k < N; k++) { const a = node(k), c = node(k + 1); sum += Math.hypot(c.x - a.x, c.z - a.z); } return sum; }
   /** Medal times for the Time Trial: average speeds of 36, 30 and 25 m/s over the route, plus the start. */
   parTimes() { const len = this.laps * this.routeLength(); return { gold: len / 36 + 5, silver: len / 30 + 5, bronze: len / 25 + 5 }; }
-  showResult(title: string, rows: [string, string][], note: string) {
-    $('res-title').textContent = title;
+  showResult(title: string, rows: [string, string][], note: string, big?: { text: string; cls: string }) {
+    $('res-title').textContent = title; const bg = $('res-big'); bg.textContent = big?.text ?? ''; bg.className = big?.cls ?? ''; bg.style.display = big ? '' : 'none';
     $('res-list').innerHTML = rows.map(([x, y]) => `<div class="rr"><span><i class="coin"></i></span><b>${x}</b><em>${y}</em></div>`).join('') + `<div style="margin:10px 0 0;text-align:center;color:#ffd24a;font-size:16px;font-weight:700">${note}</div>`;
     ($('res-again') as HTMLElement).style.display = ''; $('res-back').textContent = 'MAIN MENU';
     $('results').classList.add('on'); ui = 'result'; sound.engine(false); sound.fanfare();
@@ -924,11 +938,11 @@ net.h.left = (id) => game?.removeRider(id);
 net.h.closed = () => { if (game?.mp) { toast('Disconnected from the server', 2500, '#ff8a8a'); $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); } };
 net.h.results = (list: ResultRow[]) => {
   if (!game?.mp) return; const me = game.player.netId;
-  $('res-title').textContent = 'RESULTS'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
+  $('res-title').textContent = 'RESULTS'; $('res-big').style.display = 'none'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
   $('res-list').innerHTML = list.map((r, i) => `<div class="rr ${r.id === me ? 'me' : ''}"><span>${i + 1}</span><b>${r.name.replace(/[<>&]/g, '')}</b><em>${r.time ? fmt(r.time) : 'DNF'}</em></div>`).join('');
   $('results').classList.add('on'); sound.fanfare();
 };
-$('res-back').addEventListener('click', () => { const was = game?.mp; $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab(was ? 'online' : 'play', true); });
+$('res-back').addEventListener('click', () => { const was = game?.mp; if (was && net.lobby?.status === 'racing') net.leaveRoom(); $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab(was ? 'online' : 'play', true); });
 $('res-again').addEventListener('click', () => { $('results').classList.remove('on'); startGame(); });
 setTaskListener((text) => toast(`Task complete: ${text}. Claim it in Rewards!`, 2800, '#3ddc84'));
 (window as any).__bump = bump;
@@ -943,7 +957,7 @@ if (new URLSearchParams(location.search).has('auto')) startGame();
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (game && (ui === 'play' || (game.mp && (ui === 'pause' || ui === 'wreck')))) { game.update(dt); game.hud(); } else if (ui === 'home') homeFrame(dt);
+  if (game && (ui === 'play' || (game.mp && (ui === 'pause' || ui === 'wreck' || ui === 'result')))) { game.update(dt); game.hud(); } else if (ui === 'home') homeFrame(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

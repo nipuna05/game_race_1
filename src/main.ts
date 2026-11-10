@@ -42,6 +42,7 @@ const node = (n: number) => NODE[((n % N) + N) % N];
 // ---------- input ----------
 const keys = new Set<string>();
 const sound = new Sound();
+let bigMap = false;   // M: the full-city map, enlarged
 let ui: 'home' | 'play' | 'pause' | 'wreck' = 'home';
 addEventListener('pointerdown', () => { sound.start(); $('sndhint').style.display = 'none'; });
 addEventListener('keydown', (e) => {
@@ -51,6 +52,7 @@ addEventListener('keydown', (e) => {
     if (e.code === 'KeyQ') game.attack(game.player, 'punch', -1); else if (e.code === 'KeyE') game.attack(game.player, 'punch', 1); else if (e.code === 'KeyF') game.attack(game.player, 'kick');
   }
   if (e.code === 'KeyH' && ui === 'play' && !e.repeat) showTips();
+  if (e.code === 'KeyM' && ui === 'play' && !e.repeat) bigMap = !bigMap;
   if (e.code === 'Escape') { if (ui === 'play') setPause(true); else if (ui === 'pause') setPause(false); }
   if (e.code === 'KeyR' && ui === 'play' && game) game.resetPlayer();
 });
@@ -577,7 +579,59 @@ class Game {
     if (Math.abs(camera.fov - fov) > 0.1) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 4); camera.updateProjectionMatrix(); }
   }
 
+  /** The route guide: an arrow to the next checkpoint, how far it is, and what the road does there (left, right, straight, finish). */
+  private navTxt = '';
+  navUpdate() {
+    const el = $('navhud'), b = this.player.bike;
+    if (this.mode !== 'race' || this.phase === 'done') { el.classList.remove('on'); return; }
+    const me = this.player, n0 = this.nextNode(me), from = node(me.passed - 1), n1 = node(me.passed + 1);
+    const dx = n0.x - b.x, dz = n0.z - b.z, d = Math.hypot(dx, dz);
+    let rel = Math.atan2(dx, dz) - b.h; while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
+    const ux = n0.x - from.x, uz = n0.z - from.z, vx = n1.x - n0.x, vz = n1.z - n0.z, cross = (ux * vz - uz * vx) / ((Math.hypot(ux, uz) || 1) * (Math.hypot(vx, vz) || 1));
+    const finishing = me.passed >= this.laps * N, kind = finishing ? 'finish' : cross < -0.5 ? 'left' : cross > 0.5 ? 'right' : 'straight';
+    const wrong = Math.abs(rel) > 2.3 && Math.abs(b.speed) > 3, m = d > 100 ? Math.round(d / 10) * 10 : Math.round(d / 5) * 5;
+    let turn: string, sub: string, cls = '';
+    if (wrong) { turn = 'WRONG WAY'; sub = 'Turn around'; cls = 'wrong'; }
+    else if (d > 230) { turn = 'Follow the road'; sub = `Checkpoint in ${m} m`; }
+    else if (kind === 'finish') { turn = 'Finish line'; sub = `${m} m ahead`; cls = 'turn'; }
+    else if (kind === 'straight') { turn = 'Straight on'; sub = `Checkpoint in ${m} m`; }
+    else { turn = `← Turn LEFT`.replace('←', kind === 'left' ? '↰' : '↱').replace('LEFT', kind === 'left' ? 'LEFT' : 'RIGHT'); sub = `in ${m} m`; cls = 'turn'; }
+    const key = `${turn}|${sub}|${cls}`;
+    if (key !== this.navTxt) { this.navTxt = key; $('navturn').textContent = turn; $('navdist').textContent = sub; el.className = `on ${cls}`; }
+    ($('navarrow') as unknown as SVGElement).style.transform = `rotate(${(-rel * 180 / Math.PI).toFixed(1)}deg)`;
+  }
+
+  /** The whole-city map at the top: roads, the race route with numbered checkpoints, you (pulsing, with your heading), riders and police. */
+  overview() {
+    const c = $('bigmap') as HTMLCanvasElement, W = bigMap ? 760 : 380;
+    if (c.width !== W) { c.width = c.height = W; c.classList.toggle('big', bigMap); }
+    const g = c.getContext('2d')!, sc = (W / (2 * HALF)) * 0.94, X = (x: number) => W / 2 + x * sc, Z = (z: number) => W / 2 + z * sc, me = this.player.bike, k = W / 380;
+    g.clearRect(0, 0, W, W); g.fillStyle = 'rgba(14,20,32,.94)'; g.fillRect(0, 0, W, W);
+    g.fillStyle = '#434c5e'; g.fillRect(X(-HALF), Z(-HALF), 2 * HALF * sc, 2 * HALF * sc);                       // roads
+    g.fillStyle = '#1b2333'; for (let i = -K; i < K; i++) for (let j = -K; j < K; j++) g.fillRect(X(i * P + R / 2), Z(j * P + R / 2), (P - R) * sc, (P - R) * sc);   // blocks
+    if (this.mode === 'race') {
+      g.strokeStyle = 'rgba(255,210,74,.9)'; g.lineWidth = 3 * k; g.lineJoin = 'round'; g.beginPath(); NODE.forEach((n, i) => (i ? g.lineTo(X(n.x), Z(n.z)) : g.moveTo(X(n.x), Z(n.z)))); g.closePath(); g.stroke();
+      const next = this.player.passed % N;
+      NODE.forEach((n, i) => {
+        const isNext = i === next, r = (isNext ? 8 + Math.sin(this.t * 6) * 2 : 5.5) * k;
+        g.fillStyle = isNext ? '#ffd24a' : '#8a7a3a'; g.beginPath(); g.arc(X(n.x), Z(n.z), r, 0, 7); g.fill();
+        if (bigMap || isNext) { g.fillStyle = '#111'; g.font = `800 ${Math.round(r * 1.25)}px Rajdhani, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(i === 0 ? 'S' : String(i), X(n.x), Z(n.z) + 1); }
+      });
+    }
+    for (const a of this.agents) if (a.kind === 'police') { g.fillStyle = a.mode === 'chase' ? '#ff3b3b' : '#5aa0ff'; g.beginPath(); g.arc(X(a.x), Z(a.z), (a.mode === 'chase' ? 4.5 : 3) * k, 0, 7); g.fill(); }
+    for (const r of this.riders) if (!r.isPlayer) { g.fillStyle = r.remote ? '#3df0c8' : '#59c1ff'; g.beginPath(); g.arc(X(r.bike.x), Z(r.bike.z), 4 * k, 0, 7); g.fill(); }
+    // you: a pulsing ring, an arrow showing which way you face, and a label
+    const px = X(me.x), pz = Z(me.z);
+    g.strokeStyle = `rgba(255,255,255,${0.55 - 0.3 * Math.abs(Math.sin(this.t * 4))})`; g.lineWidth = 2.5 * k; g.beginPath(); g.arc(px, pz, (11 + 4 * Math.abs(Math.sin(this.t * 4))) * k, 0, 7); g.stroke();
+    g.save(); g.translate(px, pz); g.rotate(-me.h + Math.PI); g.fillStyle = '#fff'; g.strokeStyle = '#0b1019'; g.lineWidth = 2 * k; g.beginPath(); g.moveTo(0, -10 * k); g.lineTo(7 * k, 8 * k); g.lineTo(0, 4 * k); g.lineTo(-7 * k, 8 * k); g.closePath(); g.fill(); g.stroke(); g.restore();
+    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.8)'; g.lineWidth = 3 * k; g.font = `800 ${Math.round(12 * k)}px Rajdhani, system-ui`; g.textAlign = px > W - 40 * k ? 'right' : 'left'; g.textBaseline = 'middle';
+    const lx = px > W - 40 * k ? px - 15 * k : px + 15 * k; g.strokeText('YOU', lx, pz - 12 * k); g.fillText('YOU', lx, pz - 12 * k);
+    g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `700 ${Math.round(11 * k)}px Rajdhani, system-ui`; g.textAlign = 'center'; g.fillText('N', W / 2, 9 * k);
+  }
+
   hud() {
+    this.overview();
+    this.navUpdate();
     const b = this.player.bike;
     $('spd').textContent = String(Math.round(Math.abs(b.speed) * 3.6));
     ($('boostfill') as HTMLElement).style.width = `${Math.round(b.boostLeft * 100)}%`;

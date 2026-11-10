@@ -26,6 +26,7 @@ npm run build
 | F | Kick |
 | R | Put the bike back on the road |
 | H | Show the racing tips |
+| M | Enlarge / shrink the city map |
 | Esc | Menu |
 
 ## Multiplayer
@@ -38,6 +39,10 @@ npm run dev         # the game page
 On the home page, ONLINE: one player creates a room and shares the 4-letter code, others join with it. The host picks the map and laps and starts the race. Everyone sees the other riders, fights (punches, kicks and rear hits land on the other player's page), and grabs the same crates (the first to take a crate gets it). Results show when everyone has finished (or 45 seconds after the first finisher). Online races have no police or traffic yet.
 
 Each page simulates its own bike and the server relays the states, picks the start time and a shared seed, and keeps the room (`server/index.ts`, messages in `shared/protocol.ts`). On a home network the game page uses the same PC for the server, so friends just open the page address.
+
+## Directions and the map
+
+In a race, a panel on the left gives directions: an arrow to the next checkpoint, the distance, and what the road does there ("Turn LEFT in 80 m", "Straight on", "Finish line"). It turns red with "WRONG WAY" if you are heading back the wrong way. The map at the top shows the whole city with the race route and numbered checkpoints, a pulsing YOU marker with the way you face, rivals (blue) and police (red). Press M to make it big. The round radar beside it shows the streets around you.
 
 ## Difficulty
 

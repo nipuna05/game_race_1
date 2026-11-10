@@ -94,6 +94,23 @@ A very hard hit (a building or car at full speed, or a police ram), or being kno
 
 Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.
 
+## Game types
+
+Pick one on the PLAY tab, GAME TYPE page (the RULES page has difficulty, police, traffic, laps and rivals). Single player; online races are normal races:
+
+| Type | What you do | Reward |
+| --- | --- | --- |
+| Race | Beat rival riders around the route | XP and coins by place |
+| Time Trial | Ride the route alone and beat the bronze, silver or gold time | medal: 120 / 200 / 300 coins |
+| Checkpoint Rush | 40 seconds, +7 seconds at every checkpoint | 20 coins per checkpoint |
+| Knockout | Every 25 s the last rider is out; be the last left | 450 coins for the win |
+| Police Escape | Four stars from the start; stay free for 2 minutes | 400 coins for escaping |
+| Brawl | 90 s street fight; knock off more riders than anyone | 20 coins per knock-off, 250 for the win |
+| Coin Rush | 100 s to collect as many gold coins as you can | 2 coins per coin collected, plus the coins themselves |
+| Free ride | Explore | - |
+
+Rewards are multiplied by the difficulty. Records (checkpoints, seconds, coins, knock-offs) and trial times are on the PROFILE tab.
+
 ## Modes and options
 
 - **Race**: a route of 8 checkpoints around the city, 1-3 laps, 0-5 computer riders. Best time is saved in the browser.

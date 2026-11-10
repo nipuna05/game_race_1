@@ -7,12 +7,12 @@ export interface Profile {
   races: number; wins: number; podiums: number; dnf: number;
   distanceKm: number; playSec: number; topKmh: number;
   knockdowns: number; fallen: number; wrecks: number; busted: number; pedHits: number; loot: number;
-  bikeUse: Record<string, number>; history: RaceResult[];
+  bikeUse: Record<string, number>; history: RaceResult[]; best: Record<string, number>;   // best: records of the game types (checkpoints, seconds, coins, knock-offs)
 }
 export interface RunStats { dist: number; top: number; ko: number; fell: number; wrecks: number; busted: number; ped: number; loot: number; coins: number; sec: number }
 export const STARTERS = ['scooter', 'street'];
 
-const blank = (): Profile => ({ name: 'Rider', xp: 0, coins: 0, owned: [...STARTERS], races: 0, wins: 0, podiums: 0, dnf: 0, distanceKm: 0, playSec: 0, topKmh: 0, knockdowns: 0, fallen: 0, wrecks: 0, busted: 0, pedHits: 0, loot: 0, bikeUse: {}, history: [] });
+const blank = (): Profile => ({ name: 'Rider', xp: 0, coins: 0, owned: [...STARTERS], races: 0, wins: 0, podiums: 0, dnf: 0, distanceKm: 0, playSec: 0, topKmh: 0, knockdowns: 0, fallen: 0, wrecks: 0, busted: 0, pedHits: 0, loot: 0, bikeUse: {}, history: [], best: {} });
 const num = (v: unknown) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : 0);
 
 function load(): Profile {
@@ -24,6 +24,7 @@ function load(): Profile {
     if (Array.isArray(o.owned)) p.owned = [...new Set([...STARTERS, ...o.owned.filter((x: unknown) => typeof x === 'string').map((x: string) => x.slice(0, 16))])].slice(0, 20);
     for (const k of ['xp', 'races', 'wins', 'podiums', 'dnf', 'distanceKm', 'playSec', 'topKmh', 'knockdowns', 'fallen', 'wrecks', 'busted', 'pedHits', 'loot'] as const) p[k] = num(o[k]);
     if (o.bikeUse && typeof o.bikeUse === 'object') for (const [k, v] of Object.entries(o.bikeUse)) p.bikeUse[String(k).slice(0, 16)] = num(v);
+    if (o.best && typeof o.best === 'object') for (const [k, v] of Object.entries(o.best).slice(0, 40)) p.best[String(k).slice(0, 24)] = num(v);
     if (Array.isArray(o.history)) p.history = o.history.slice(0, 10).filter((h: RaceResult) => h && typeof h.map === 'string').map((h: RaceResult) => ({ t: num(h.t), map: String(h.map).slice(0, 16), bike: String(h.bike).slice(0, 16), pos: num(h.pos), of: num(h.of), time: num(h.time), dnf: !!h.dnf, diff: typeof h.diff === 'string' ? h.diff.slice(0, 8) : undefined }));
   } catch { /* a fresh profile */ }
   return p;
@@ -72,6 +73,14 @@ export function recordRun(s: RunStats, bike: string, mult = 1): { xp: number; co
 export const owns = (id: string) => profile.owned.includes(id);
 /** Buy a bike with coins. Returns false when it is already owned or there are not enough coins. */
 export function buyBike(id: string, price: number): boolean { if (owns(id) || profile.coins < price) return false; profile.coins -= price; profile.owned.push(id); changed(); return true; }
+
+/** Coins and XP from a game type. Returns whether the level went up. */
+export function grant(coins: number, xp: number): { levelUp: boolean } { profile.coins += Math.max(0, Math.round(coins)); const levelUp = addXp(xp); changed(); return { levelUp }; }
+/** Keep the best value for a record; returns true when this one is a new record. */
+export function recordBest(key: string, v: number, lowerIsBetter = false): boolean {
+  const cur = profile.best[key]; if (cur !== undefined && (lowerIsBetter ? v >= cur : v <= cur)) return false;
+  profile.best[key] = v; changed(); return true;
+}
 
 export function favouriteBike(): string | null { let best: string | null = null, n = 0; for (const [k, v] of Object.entries(profile.bikeUse)) if (v > n) { n = v; best = k; } return best; }
 export function resetProfile() { const keep = profile.name; Object.assign(profile, blank(), { name: keep }); changed(); }

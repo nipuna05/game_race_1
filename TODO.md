@@ -18,6 +18,8 @@
 
 - Online: open room list (public/private rooms), lobby chat, police and traffic (simulated on each player's screen)
 
+- Game types: Time Trial, Checkpoint Rush, Knockout, Police Escape, Brawl, Coin Rush; Play tab sub-tabs; coin icon and coin look
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
 - Kick/ban for hosts, quick-match, chat during the race, shared (synced) traffic if players ask for it

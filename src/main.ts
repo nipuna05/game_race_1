@@ -4,11 +4,11 @@ import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Sound } from './audio';
-import { profile, recordRace, recordRun, owns, type RunStats } from './profile';
+import { profile, recordRace, recordRun, grant, recordBest, owns, type RunStats } from './profile';
 import { net } from './net';
 import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
-import { opt, initMenu, showHome, showPause, setTab, syncMe, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
+import { opt, initMenu, showHome, showPause, setTab, syncMe, MODES, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QS = new URLSearchParams(location.search);
@@ -43,7 +43,7 @@ const node = (n: number) => NODE[((n % N) + N) % N];
 const keys = new Set<string>();
 const sound = new Sound();
 let bigMap = false;   // M: the full-city map, enlarged
-let ui: 'home' | 'play' | 'pause' | 'wreck' = 'home';
+let ui: 'home' | 'play' | 'pause' | 'wreck' | 'result' = 'home';
 addEventListener('pointerdown', () => { sound.start(); $('sndhint').style.display = 'none'; });
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -100,7 +100,8 @@ function padMat(): THREE.MeshBasicMaterial {
 }
 
 const BOT_NAMES = ['Blaze', 'Viper', 'Rocket', 'Nitro', 'Ghost', 'Turbo', 'Rogue', 'Drift', 'Hawk', 'Storm', 'Maverick', 'Bolt'];
-interface Rider { bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean; remote?: boolean; netId?: number; tgt?: RiderState; lastSw?: number }
+type Mode = 'race' | 'trial' | 'rush' | 'knockout' | 'escape' | 'brawl' | 'coins' | 'free';
+interface Rider { ko?: number; bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean; remote?: boolean; netId?: number; tgt?: RiderState; lastSw?: number }
 /** What Easy, Normal and Hard change. Online races always use Normal. */
 interface Diff { label: string; corner: number; skill: [number, number]; aiGap: [number, number]; aiBoost: boolean; police: { spd: number; bust: number; decay: number; heat: number; extra: number }; lives: number; respawnPen: number; bustPen: number; wreckImpact: number; reward: number }
 const DIFFS: Record<string, Diff> = {
@@ -110,6 +111,18 @@ const DIFFS: Record<string, Diff> = {
 };
 /** A flat arrow pointing +y (used for the guide on the road and the floating arrow). */
 function arrowShape(): THREE.Shape { const a = new THREE.Shape(); a.moveTo(-0.9, -2.4); a.lineTo(0.9, -2.4); a.lineTo(0.9, 0.6); a.lineTo(2.3, 0.6); a.lineTo(0, 3.3); a.lineTo(-2.3, 0.6); a.lineTo(-0.9, 0.6); a.closePath(); return a; }
+/** The picture on both faces of a coin: a gold disc with a raised rim and an embossed star. */
+let coinTex: THREE.CanvasTexture | null = null;
+function coinTexture(): THREE.CanvasTexture {
+  if (coinTex) return coinTex;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d')!;
+  const gr = g.createRadialGradient(46, 40, 6, 64, 64, 70); gr.addColorStop(0, '#fff2a0'); gr.addColorStop(0.5, '#ffcf3a'); gr.addColorStop(1, '#c98400'); g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
+  g.strokeStyle = '#b87400'; g.lineWidth = 8; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.stroke();
+  g.strokeStyle = 'rgba(255,245,170,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(64, 64, 47, 0, 7); g.stroke();
+  const star = (r: number, ox: number, oy: number, col: string) => { g.fillStyle = col; g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.42 : r; g.lineTo(64 + ox + Math.cos(a) * rr, 64 + oy + Math.sin(a) * rr); } g.closePath(); g.fill(); };
+  star(34, 2, 3, 'rgba(120,70,0,.55)'); star(34, 0, 0, '#ffe36b'); star(22, 0, 0, '#f2b01e');
+  coinTex = new THREE.CanvasTexture(c); coinTex.colorSpace = THREE.SRGBColorSpace; coinTex.anisotropy = 4; return coinTex;
+}
 interface MpCfg { you: number; players: PlayerInfo[]; seed: number; inMs: number; settings: Settings }
 /** A small seeded random generator: every player gets the same crates and boost pads. */
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -122,16 +135,17 @@ function makeLabel(name: string): THREE.Sprite {
 
 class Game {
   player: Rider; riders: Rider[] = []; agents: Agent[] = [];
-  mode = opt.mode as 'race' | 'free'; police = opt.police === '1'; traffic = Number(opt.traffic); laps = Number(opt.laps);
+  mode = (MODES.some((x) => x.id === opt.mode) ? opt.mode : 'race') as Mode; police = opt.police === '1'; traffic = Number(opt.traffic); laps = Number(opt.laps);
   t = 0; raceT = 0; phase: 'count' | 'go' | 'done' = 'go'; countT = 0; penalty = 0;
   heat = 0; bust = 0; lastBeep = 4;
   camH = 0; beacon: THREE.Mesh; ring: THREE.Mesh;
   placed = 0; camPos = new THREE.Vector3();
   /** The modes that follow the checkpoint route (race now; more game types use it too). */
-  get routed(): boolean { return this.mode === 'race'; }
+  get routed(): boolean { return this.mode === 'race' || this.mode === 'trial' || this.mode === 'rush' || this.mode === 'knockout'; }
   guideChev: THREE.InstancedMesh | null = null; guidePos: { x: number; z: number; q: THREE.Quaternion }[] = [];
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
   lives = 3; maxLives = 3; D: Diff = DIFFS.normal; fallTimes: number[] = [];
+  rivalN = 0; modeT = 0; modeScore = 0; elimT = 30; eliminated = new Set<Rider>(); modeDone = false;
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
   mp: MpCfg | null = null; rand: () => number = Math.random; sendAcc = 0; hitAt = new Map<number, number>();
   st: RunStats = { dist: 0, top: 0, ko: 0, fell: 0, wrecks: 0, busted: 0, ped: 0, loot: 0, coins: 0, sec: 0 }; committed = false; resultDone = false;
@@ -140,27 +154,39 @@ class Game {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
     if (mp) { this.mode = 'race'; this.laps = mp.settings.laps; this.police = mp.settings.police; this.traffic = mp.settings.traffic; }   // traffic and police run on each player's own screen
     this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
+    if (mp) this.rivalN = 0;
+    else {                                                                      // what each game type needs
+      const rv = Number(opt.rivals);
+      switch (this.mode) {
+        case 'race': this.rivalN = rv; break;
+        case 'rush': this.laps = 999; this.modeT = 40; break;
+        case 'knockout': this.laps = 999; this.rivalN = Math.max(5, rv); this.elimT = 30; break;
+        case 'escape': this.police = true; this.traffic = Math.max(1, this.traffic); this.modeT = 120; break;
+        case 'brawl': this.laps = 999; this.rivalN = Math.max(5, rv); this.modeT = 90; break;
+        case 'coins': this.modeT = 100; break;
+      }
+    }
     const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
     this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
     if (this.mp) this.setupRemotes(this.mp);
-    else if (this.mode === 'race') {
+    else if (this.rivalN > 0) {
       const cols = [0x3498db, 0xe74c3c, 0x2ecc71, 0x9b59b6, 0xe67e22];
-      for (let i = 0; i < Number(opt.rivals); i++) {
+      for (let i = 0; i < this.rivalN; i++) {
         const rd = opt.field === 'mixed' ? BIKES[(Math.random() * BIKES.length) | 0] : mine;
         const r: Rider = { bike: new Bike(cols[i % cols.length], rd), passed: 0, finishedAt: 0, name: BOT_NAMES[i % BOT_NAMES.length], lane: rnd(2, 4.5), isPlayer: false };
         r.bike.skill = rnd(this.D.skill[0], this.D.skill[1]); scene.add(r.bike.mesh.root); this.riders.push(r);
       }
     }
-    const tm = mapDef().traffic, nCars = Math.round([0, 36, 72][this.traffic] * tm), nPeds = Math.round([0, 60, 130][this.traffic] * tm), nPol = this.police ? [2, 3, 5][this.traffic] : 0;
+    const tm = mapDef().traffic, nCars = Math.round([0, 36, 72][this.traffic] * tm), nPeds = Math.round([0, 60, 130][this.traffic] * tm), nPol = this.police ? (this.mode === 'escape' ? 8 : [2, 3, 5][this.traffic]) : 0;
     for (let i = 0; i < nCars; i++) this.addAgent('car');
     for (let i = 0; i < nPeds; i++) this.addAgent('ped');
     for (let i = 0; i < nPol; i++) this.addAgent('police');
     this.beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 90, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(R / 2 - 1.5, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
     this.ring.rotation.x = Math.PI / 2; this.ring.position.y = 0.4;
-    if (this.mode === 'race') scene.add(this.beacon, this.ring);
-    this.placeLoot(); this.placeCoins(); if (this.mode === 'race') this.buildGuide();
+    if (this.routed) scene.add(this.beacon, this.ring);
+    this.placeLoot(); this.placeCoins(); if (this.routed) this.buildGuide();
     this.resetStart();
   }
 
@@ -221,7 +247,7 @@ class Game {
   }
 
   resetStart() {
-    if (this.mode === 'race') {
+    if (this.routed || this.mode === 'brawl') {
       this.phase = 'count'; this.countT = this.mp ? this.mp.inMs / 1000 - 0.25 : 3.2; this.lastBeep = Math.ceil(this.countT);
       this.riders.forEach((r, i) => {
         const b = r.bike, row = Math.floor(i / 2), col = i % 2;
@@ -229,8 +255,9 @@ class Game {
       });
       // keep traffic off the starting grid
       for (const a of this.agents) if (Math.hypot(a.x - node(0).x + 26, a.z - node(0).z) < 40) a.placeOnRoad(this.player.bike, 120);
+      if (this.mode === 'brawl') { const pb = this.player.bike; pb.x = 0; pb.z = 0; pb.h = Math.PI / 2; pb.syncMesh(0); }   // the brawl is fought all over the city
     } else {
-      this.phase = 'go';
+      this.phase = this.mode === 'free' ? 'go' : 'count'; this.countT = 3.2; this.lastBeep = 4;
       const b = this.player.bike; b.x = 0; b.z = 0; b.h = Math.PI / 2; b.speed = 0; b.syncMesh(0);
     }
     this.camH = this.player.bike.h; this.updateCamera(1, true);
@@ -246,7 +273,7 @@ class Game {
   nextNode(r: Rider) { return node(r.passed); }
 
   progress(r: Rider) { const n = this.nextNode(r), d = Math.hypot(n.x - r.bike.x, n.z - r.bike.z); return r.passed * 10000 - d; }
-  rank(): number { const mine = this.progress(this.player); let rk = 1; for (const r of this.riders) if (r !== this.player && (r.finishedAt && !this.player.finishedAt ? true : this.progress(r) > mine)) rk++; return rk; }
+  rank(): number { const mine = this.progress(this.player); let rk = 1; for (const r of this.riders) if (r !== this.player && !this.eliminated.has(r) && (r.finishedAt && !this.player.finishedAt ? true : this.progress(r) > mine)) rk++; return rk; }
 
   crime(amount: number, why: string) {
     if (!this.police) return;
@@ -265,13 +292,15 @@ class Game {
     if (this.phase === 'count') {
       this.countT -= dt; const n = Math.ceil(this.countT);
       if (n !== this.lastBeep && n > 0) { this.lastBeep = n; toast(String(n), 900, '#ffd24a'); sound.beep(false); }
-      if (this.countT <= 0) { this.phase = 'go'; this.raceT = 0; toast('GO!', 900, '#3ddc84'); sound.beep(true); }
-    } else if (this.phase === 'go' && this.mode === 'race') this.raceT += dt;
+      if (this.countT <= 0) { this.phase = 'go'; this.raceT = 0; toast('GO!', 900, '#3ddc84'); sound.beep(true); if (this.mode === 'escape') this.heat = 4; }
+    } else if (this.phase === 'go' && this.routed) this.raceT += dt;
     const live = this.phase !== 'count';
+    if (this.phase === 'go' && !this.modeDone) this.modeTick(dt);
 
     // riders
     for (const r of this.riders.slice()) {
       if (r.remote) { this.updateRemote(r, dt); continue; }
+      if (this.eliminated.has(r)) continue;
       const b = r.bike;
       let inp: Input = { throttle: 0, steer: 0, hand: false, boost: false };
       if (live) {
@@ -279,6 +308,7 @@ class Game {
         else {
           const to = this.nextNode(r), from = node(r.passed - 1);
           inp = aiInput(b, from.x, from.z, to.x, to.z, r.lane, this.D.corner);
+          if (this.mode === 'brawl') { const pb = this.player.bike; if (Math.hypot(pb.x - b.x, pb.z - b.z) < 50 && pb.fall <= 0) inp = aiInput(b, b.x, b.z, pb.x, pb.z, 0, 1); }   // close to you: they come for you
           if (this.D.aiBoost && b.boostLeft > 0.35 && Math.abs(inp.steer) < 0.3) inp.boost = true;   // hard riders use their boost on the straights
           this.aiFight(r, dt);
         }
@@ -292,20 +322,20 @@ class Game {
       if (r.isPlayer && impact > this.D.wreckImpact) { this.wreck('Hit something at full speed'); return; }
       if (live && b.fall <= 0) this.pickups(r);
       if (r.isPlayer && impact > 5) { sound.thump(impact); if (impact > 12) { flash(); this.crime(0.7, 'crash'); } }
-      if (this.mode === 'race' && live) {
+      if ((this.routed || (this.mode === 'brawl' && !r.isPlayer)) && live) {
         const n = this.nextNode(r);
         if (Math.hypot(n.x - b.x, n.z - b.z) < R + 2) {
           r.passed++;
           if (r.isPlayer && r.passed <= this.laps * N + 1) {
             if (r.passed === this.laps * N + 1) this.finish();
-            else { sound.beep(false); if (r.passed % N === 0) toast(`Lap ${r.passed / N + 1}/${this.laps}`, 1500, '#ffd24a'); }
+            else { sound.beep(false); if (this.mode === 'rush') { this.modeT += 7; this.modeScore++; toast('+7 s', 900, '#3ddc84'); } else if (r.passed % N === 0) toast(`Lap ${r.passed / N + 1}/${this.laps}`, 1500, '#ffd24a'); }
           } else if (!r.isPlayer && r.passed >= this.laps * N + 1 && !r.finishedAt) { r.finishedAt = this.raceT; this.placed++; }
         }
       }
     }
     // riders bump each other; coming up fast from behind knocks the rider in front off
     for (let i = 0; i < this.riders.length; i++) for (let j = i + 1; j < this.riders.length; j++) {
-      const ra = this.riders[i], rc = this.riders[j]; if (ra.remote && rc.remote) continue;
+      const ra = this.riders[i], rc = this.riders[j]; if ((ra.remote && rc.remote) || this.eliminated.has(ra) || this.eliminated.has(rc)) continue;
       const a = ra.bike, c = rc.bike, dx = c.x - a.x, dz = c.z - a.z, d = Math.hypot(dx, dz);
       if (d < 1.4 && d > 1e-4) {
         const k = (1.4 - d) / 2 / d; a.x -= dx * k; a.z -= dz * k; c.x += dx * k; c.z += dz * k;
@@ -350,7 +380,7 @@ class Game {
     }
     this.collideAgents(dt);
     if (this.player.bike.fall <= 0) this.collectCoins();
-    this.spinCoins(); if (this.mode === 'race') this.updateGuide(this.t);
+    this.spinCoins(); if (this.routed) this.updateGuide(this.t);
     for (const l of this.loots) {
       if (l.cd > 0) { l.cd -= dt; if (l.cd <= 0) l.mesh.visible = true; }
       l.mesh.rotation.y += dt * 2.2; l.mesh.position.y = 1.6 + Math.sin(this.t * 3 + l.x) * 0.25;
@@ -359,7 +389,7 @@ class Game {
     this.updateCamera(dt, false);
     if (mapDef().night) { const f = me.fwd; headlight.position.set(me.x + f.x * 6, 5, me.z + f.z * 6); }
     // checkpoint beacon
-    if (this.mode === 'race') { const n = this.nextNode(this.player); this.beacon.position.set(n.x, 45, n.z); this.ring.position.set(n.x, 0.4, n.z); this.beacon.visible = this.phase !== 'done'; this.ring.visible = this.beacon.visible; }
+    if (this.routed) { const n = this.nextNode(this.player); this.beacon.position.set(n.x, 45, n.z); this.ring.position.set(n.x, 0.4, n.z); this.beacon.visible = this.phase !== 'done'; this.ring.visible = this.beacon.visible; }
   }
 
   sendChaser() {
@@ -372,15 +402,16 @@ class Game {
   }
   endChase() { for (const a of this.agents) if (a.mode === 'chase') a.placeOnRoad(this.player.bike, 140); this.bust = 0; }
   busted() {
+    if (this.mode === 'escape') { this.endMode(false, 'BUSTED'); return; }
     this.st.busted++; toast(`BUSTED! +${this.D.bustPen} s`, 2500, '#ff6b6b'); this.penalty += this.D.bustPen; this.raceT += this.D.bustPen; this.heat = 0; this.endChase(); this.bust = 0;
-    const b = this.player.bike, back = this.mode === 'race' ? node(this.player.passed - 1) : { x: 0, z: 0 };
+    const b = this.player.bike, back = this.routed ? node(this.player.passed - 1) : { x: 0, z: 0 };
     b.x = back.x; b.z = back.z; b.speed = 0; b.lat = 0;
-    if (this.mode === 'race') { const to = node(this.player.passed); b.h = Math.atan2(to.x - back.x, to.z - back.z); } this.resetPlayer();
+    if (this.routed) { const to = node(this.player.passed); b.h = Math.atan2(to.x - back.x, to.z - back.z); } this.resetPlayer();
   }
 
   collideAgents(dt: number) {
     for (const r of this.riders) {
-      if (r.remote) continue;                                 // other players' cars and police are on their own screens
+      if (r.remote || this.eliminated.has(r)) continue;       // other players' cars and police are on their own screens
       const b = r.bike;
       for (const a of this.agents) {
         if (a.down > 0) continue;
@@ -390,7 +421,7 @@ class Game {
         if (a.kind === 'ped') {
           if (Math.abs(b.speed) > 4) {
             const f = b.fwd; a.knock(f.x * b.speed * 0.8 + rnd(-2, 2), f.z * b.speed * 0.8 + rnd(-2, 2)); b.speed *= 0.93;
-            if (r.isPlayer) { this.st.ped++; this.penalty += 2; this.raceT += this.mode === 'race' ? 2 : 0; toast('Watch out! +2 s', 1000, '#ffb36b'); this.crime(0.8, 'hit a pedestrian'); sound.thump(6); }
+            if (r.isPlayer) { this.st.ped++; this.penalty += 2; this.raceT += this.routed ? 2 : 0; toast('Watch out! +2 s', 1000, '#ffb36b'); this.crime(0.8, 'hit a pedestrian'); sound.thump(6); }
           }
           continue;
         }
@@ -412,7 +443,7 @@ class Game {
     const reach = (kind === 'kick' ? 3 : 2.6) + (b.power > 0 ? 1 : 0);
     let best: Rider | null = null, bd = 99, bs: 1 | -1 = 1;
     for (const o of this.riders) {
-      if (o === a || o.bike.fall > 0) continue;
+      if (o === a || o.bike.fall > 0 || this.eliminated.has(o)) continue;
       const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * fx + dz * fz, r = dx * rx + dz * rz;
       if (Math.abs(f) > 2.4 || Math.abs(r) > reach || Math.abs(r) < 0.1) continue;
       const sd: 1 | -1 = r > 0 ? 1 : -1; if (side && sd !== side) continue;
@@ -439,6 +470,7 @@ class Game {
     const res = t.hit(mag, clamp(shove, -1, 1) * (how === 'kick' ? 1.6 : 1));
     if (how === 'rear') f.speed *= 0.92;
     if (from.isPlayer && res === 'fell') this.st.ko++;
+    if (res === 'fell') from.ko = (from.ko ?? 0) + 1;
     if (to.isPlayer && res === 'fell') this.playerFell();
     if (res === 'ignored') { if (from.isPlayer || to.isPlayer) toast(to.bike.shield > 0 ? 'Shield blocked it!' : '', 600, '#8affb0'); return; }
     if (from.isPlayer || to.isPlayer) {
@@ -450,14 +482,14 @@ class Game {
   }
   /** Computer riders throw a punch or kick at a rider alongside them. */
   aiFight(r: Rider, dt: number) {
-    if (this.raceT < 3 && this.mode === 'race') return;
+    if (this.raceT < 3 && this.routed) return;
     const cd = (this.aiCd.get(r) ?? rnd(0, 1)) - dt; this.aiCd.set(r, cd);
     if (cd > 0) return;
     const b = r.bike;
     for (const o of this.riders) {
-      if (o === r || o.bike.fall > 0) continue;
+      if (o === r || o.bike.fall > 0 || this.eliminated.has(o)) continue;
       const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * b.fwd.x + dz * b.fwd.z, rr = dx * -Math.cos(b.h) + dz * Math.sin(b.h);
-      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, rnd(this.D.aiGap[0], this.D.aiGap[1])); return; }
+      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, this.mode === 'brawl' ? rnd(0.6, 1.4) : rnd(this.D.aiGap[0], this.D.aiGap[1])); return; }
     }
     this.aiCd.set(r, 0.2);
   }
@@ -475,7 +507,7 @@ class Game {
       const g = new THREE.Group(), p = new THREE.Mesh(new THREE.PlaneGeometry(9, 5), padMat()); p.rotation.x = -Math.PI / 2; g.add(p);
       g.rotation.y = axis === 'z' ? -Math.PI / 2 : 0; g.position.set(x, 0.06, z); scene.add(g); this.pads.push({ x, z, axis, mesh: g });
     };
-    if (this.mode === 'race') {
+    if (this.routed) {
       for (let k = 0; k < N; k++) {
         const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len, rx = -uz, rz = ux, axis: 'x' | 'z' = Math.abs(dx) > Math.abs(dz) ? 'x' : 'z';
         for (const t of [0.3, 0.7]) { const o = rnd2(-R / 2 + 3, R / 2 - 3); crate(a.x + dx * t + rx * o, a.z + dz * t + rz * o); }
@@ -542,13 +574,15 @@ class Game {
   /** Gold coins along the route and around the roads (worth 5 each, kept when the ride ends). */
   placeCoins() {
     const run = (x: number, z: number, dx: number, dz: number, n: number) => { for (let i = 0; i < n; i++) this.coinPos.push({ x: x + dx * i * 4.5, z: z + dz * i * 4.5, got: false }); };
-    if (this.mode === 'race') for (let k = 0; k < N; k++) {
+    if (this.routed) for (let k = 0; k < N; k++) {
       const a = node(k), c = node(k + 1), dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len;
       for (const f of [0.18, 0.5, 0.82]) { const o = rnd(-R / 2 + 3, R / 2 - 3); run(a.x + dx * f - ux * 12 - uz * o, a.z + dz * f - uz * 12 + ux * o, ux, uz, 6); }
     }
     for (let i = 0; i < 10; i++) { const ax = Math.random() < 0.5, line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 40, HALF - 60), o = rnd(-R / 2 + 3, R / 2 - 3); run(ax ? pos : line + o, ax ? line + o : pos, ax ? 1 : 0, ax ? 0 : 1, 5); }
-    const geo = new THREE.CylinderGeometry(0.6, 0.6, 0.12, 18); geo.rotateZ(Math.PI / 2);
-    this.coinMesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.9, roughness: 0.25, emissive: 0x6a4a00, emissiveIntensity: 0.7 }), this.coinPos.length);
+    if (this.mode === 'coins') for (let i = 0; i < 45; i++) { const ax = Math.random() < 0.5, line = Math.floor(rnd(-K, K + 1)) * P, pos = rnd(-HALF + 40, HALF - 60), o = rnd(-R / 2 + 3, R / 2 - 3); run(ax ? pos : line + o, ax ? line + o : pos, ax ? 1 : 0, ax ? 0 : 1, 7); }
+    const geo = new THREE.CylinderGeometry(0.46, 0.46, 0.1, 28); geo.rotateZ(Math.PI / 2);
+    const edge = new THREE.MeshStandardMaterial({ color: 0xe0a000, metalness: 0.85, roughness: 0.3, emissive: 0x5a3c00, emissiveIntensity: 0.6 }), face = new THREE.MeshStandardMaterial({ map: coinTexture(), metalness: 0.55, roughness: 0.35, emissive: 0x6a4a00, emissiveMap: coinTexture(), emissiveIntensity: 0.55 });
+    this.coinMesh = new THREE.InstancedMesh(geo, [edge, face, face], this.coinPos.length);
     this.coinMesh.frustumCulled = false; scene.add(this.coinMesh); this.spinCoins();
   }
   private spinCoins() {
@@ -590,7 +624,7 @@ class Game {
   /** The bike is wrecked: freeze the game and offer to respawn (while you have respawns left), retry or leave. */
   wreck(reason: string) {
     if (ui !== 'play' || this.phase === 'done') return;
-    const race = this.mode === 'race', out = race && this.lives <= 0;
+    const race = this.routed, out = race && this.lives <= 0;
     this.st.wrecks++;
     if (out && !this.resultDone) { this.resultDone = true; recordRace({ map: opt.map, bike: opt.bike, pos: this.riders.length, of: this.riders.length, time: this.raceT, dnf: true, diff: this.mp ? undefined : opt.diff }, this.D.reward); }
     ui = 'wreck'; sound.engine(false); sound.fall(); flash();
@@ -603,7 +637,7 @@ class Game {
   }
   /** Back on the road at the last checkpoint, bike repaired. */
   respawn() {
-    const race = this.mode === 'race', me = this.player, b = me.bike;
+    const race = this.routed, me = this.player, b = me.bike;
     if (race) { this.lives--; this.raceT += this.D.respawnPen; this.penalty += this.D.respawnPen; }
     b.fall = 0; b.balance = 1; b.turbo = b.shield = b.power = b.padT = 0; b.inv = 2.2; b.crash = 0; b.speed = 0; b.lat = 0; this.fallTimes = [];
     this.heat = 0; this.endChase(); this.bust = 0;
@@ -618,6 +652,7 @@ class Game {
 
   finish() {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
+    if (this.mode === 'trial') { this.finishTrial(); return; }
     const rk = this.rank(); const t = this.raceT;
     const best = loadBest(); let note = '';
     if (!best || t < best) { saveBest(t); note = '  New best!'; }
@@ -669,7 +704,7 @@ class Game {
     g.clearRect(0, 0, W, W); g.fillStyle = 'rgba(14,20,32,.94)'; g.fillRect(0, 0, W, W);
     g.fillStyle = '#434c5e'; g.fillRect(X(-HALF), Z(-HALF), 2 * HALF * sc, 2 * HALF * sc);                       // roads
     g.fillStyle = '#1b2333'; for (let i = -K; i < K; i++) for (let j = -K; j < K; j++) g.fillRect(X(i * P + R / 2), Z(j * P + R / 2), (P - R) * sc, (P - R) * sc);   // blocks
-    if (this.mode === 'race') {
+    if (this.routed) {
       g.strokeStyle = 'rgba(255,210,74,.9)'; g.lineWidth = 3 * k; g.lineJoin = 'round'; g.beginPath(); NODE.forEach((n, i) => (i ? g.lineTo(X(n.x), Z(n.z)) : g.moveTo(X(n.x), Z(n.z)))); g.closePath(); g.stroke();
       const next = this.player.passed % N;
       NODE.forEach((n, i) => {
@@ -679,7 +714,7 @@ class Game {
       });
     }
     for (const a of this.agents) if (a.kind === 'police') { g.fillStyle = a.mode === 'chase' ? '#ff3b3b' : '#5aa0ff'; g.beginPath(); g.arc(X(a.x), Z(a.z), (a.mode === 'chase' ? 4.5 : 3) * k, 0, 7); g.fill(); }
-    for (const r of this.riders) if (!r.isPlayer) { g.fillStyle = r.remote ? '#3df0c8' : '#59c1ff'; g.beginPath(); g.arc(X(r.bike.x), Z(r.bike.z), 4 * k, 0, 7); g.fill(); }
+    for (const r of this.riders) if (!r.isPlayer && !this.eliminated.has(r)) { g.fillStyle = r.remote ? '#3df0c8' : '#59c1ff'; g.beginPath(); g.arc(X(r.bike.x), Z(r.bike.z), 4 * k, 0, 7); g.fill(); }
     // you: a pulsing ring, an arrow showing which way you face, and a label
     const px = X(me.x), pz = Z(me.z);
     g.strokeStyle = `rgba(255,255,255,${0.55 - 0.3 * Math.abs(Math.sin(this.t * 4))})`; g.lineWidth = 2.5 * k; g.beginPath(); g.arc(px, pz, (11 + 4 * Math.abs(Math.sin(this.t * 4))) * k, 0, 7); g.stroke();
@@ -689,16 +724,84 @@ class Game {
     g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `700 ${Math.round(11 * k)}px Rajdhani, system-ui`; g.textAlign = 'center'; g.fillText('N', W / 2, 9 * k);
   }
 
+  /** The text block at the top left, different for every game type. */
+  modeHud(): string {
+    const tl = (t: number) => { const sec = Math.max(0, Math.ceil(t)); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
+    const coinLine = `<span class="cn"><i class="coin"></i> ${this.st.coins}</span>`, hearts = `<span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(this.maxLives - Math.max(0, this.lives))}</span>`;
+    const tm = this.phase === 'done' ? this.player.finishedAt : this.raceT, lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), pen = this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : '';
+    switch (this.mode) {
+      case 'race': return `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br>${coinLine} &nbsp;${hearts}${pen}`;
+      case 'trial': { const par = this.parTimes(); return `<b>TIME TRIAL</b><br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><small style="color:#ffd24a">GOLD ${fmt(par.gold)}</small> &nbsp;${hearts}${pen}`; }
+      case 'rush': return `<b>${tl(this.modeT)}</b><br>Checkpoints ${this.modeScore}<br>${coinLine} &nbsp;${hearts}`;
+      case 'knockout': { const alive = this.riders.length - this.eliminated.size; return `<b>${alive}</b> riders left<br>Next one out in ${Math.max(0, Math.ceil(this.elimT))} s<br>You are ${this.rank()} / ${alive}<br>${coinLine} &nbsp;${hearts}`; }
+      case 'escape': return `<b>${tl(this.modeT)}</b><br>Escape the police<br>${coinLine}`;
+      case 'brawl': { let best = 0; for (const r of this.riders) if (!r.isPlayer) best = Math.max(best, r.ko ?? 0); return `<b>${tl(this.modeT)}</b><br>Your knock-offs ${this.player.ko ?? 0}<br>Best rival ${best}<br>${coinLine}`; }
+      case 'coins': return `<b>${tl(this.modeT)}</b><br><span class="cn"><i class="coin"></i> ${Math.round(this.st.coins / 5)}</span>`;
+      default: return `<b>Free ride</b><br>Explore the city<br>${coinLine}`;
+    }
+  }
+
+  /** One tick of the clock of the timed game types. */
+  modeTick(dt: number) {
+    switch (this.mode) {
+      case 'rush': this.modeT -= dt; if (this.modeT <= 0) this.endMode(this.modeScore >= 6, 'TIME UP'); break;
+      case 'coins': this.modeT -= dt; if (this.modeT <= 0) this.endMode(true, 'TIME UP'); break;
+      case 'brawl': this.modeT -= dt; if (this.modeT <= 0) this.endMode(true, 'TIME UP'); break;
+      case 'escape': this.modeT -= dt; if (this.heat < 2) this.heat = 2; if (this.modeT <= 0) this.endMode(true, 'ESCAPED!'); break;
+      case 'knockout': this.elimT -= dt; if (this.elimT <= 0) this.eliminate(); break;
+    }
+  }
+  /** Knockout: the rider furthest behind is out. */
+  eliminate() {
+    const alive = this.riders.filter((r) => !this.eliminated.has(r)); if (alive.length <= 1) return;
+    let loser = alive[0], lp = this.progress(alive[0]); for (const r of alive) { const pr = this.progress(r); if (pr < lp) { lp = pr; loser = r; } }
+    this.elimT = 25;
+    if (loser.isPlayer) { this.endMode(false, 'ELIMINATED'); return; }
+    this.eliminated.add(loser); loser.bike.mesh.root.visible = false; this.modeScore++;
+    toast(`${loser.name} is out!`, 1800, '#ff8a8a'); sound.thump(8);
+    if (alive.length - 1 === 1) this.endMode(true, 'VICTORY');
+  }
+  routeLength(): number { let sum = 0; for (let k = 0; k < N; k++) { const a = node(k), c = node(k + 1); sum += Math.hypot(c.x - a.x, c.z - a.z); } return sum; }
+  /** Medal times for the Time Trial: average speeds of 36, 30 and 25 m/s over the route, plus the start. */
+  parTimes() { const len = this.laps * this.routeLength(); return { gold: len / 36 + 5, silver: len / 30 + 5, bronze: len / 25 + 5 }; }
+  showResult(title: string, rows: [string, string][], note: string) {
+    $('res-title').textContent = title;
+    $('res-list').innerHTML = rows.map(([x, y]) => `<div class="rr"><span><i class="coin"></i></span><b>${x}</b><em>${y}</em></div>`).join('') + `<div style="margin:10px 0 0;text-align:center;color:#ffd24a;font-size:16px;font-weight:700">${note}</div>`;
+    ($('res-again') as HTMLElement).style.display = ''; $('res-back').textContent = 'MAIN MENU';
+    $('results').classList.add('on'); ui = 'result'; sound.engine(false); sound.fanfare();
+  }
+  finishTrial() {
+    const t = this.raceT, par = this.parTimes(), medal = t <= par.gold ? 'GOLD' : t <= par.silver ? 'SILVER' : t <= par.bronze ? 'BRONZE' : '';
+    const key = 'trial.' + opt.map, best = loadBest(key), isBest = !best || t < best; if (isBest) saveBest(t, key);
+    let coins = medal === 'GOLD' ? 300 : medal === 'SILVER' ? 200 : medal === 'BRONZE' ? 120 : 60, xp = medal ? 100 : 30;
+    coins = Math.round(coins * this.D.reward); xp = Math.round(xp * this.D.reward); const g = grant(coins, xp); this.modeDone = true;
+    this.showResult(medal ? `${medal} MEDAL` : 'FINISHED', [['Your time', fmt(t)], ['Gold', fmt(par.gold)], ['Silver', fmt(par.silver)], ['Bronze', fmt(par.bronze)], ['Your best', fmt(isBest ? t : best) + (isBest ? '  NEW!' : '')]], `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
+  }
+  /** The end of Rush, Escape, Coin Rush, Brawl and Knockout: work out the rewards and show the result card. */
+  endMode(win: boolean, headline: string) {
+    if (this.modeDone) return; this.modeDone = true; this.phase = 'done';
+    const m = this.mode, rows: [string, string][] = []; let coins = 0, xp = 0, title = headline;
+    if (m === 'rush') { const n = this.modeScore; coins = n * 20; xp = n * 8; const nb = recordBest('rush', n); rows.push(['Checkpoints reached', String(n)], ['Your record', `${profile.best.rush ?? n}${nb ? '  NEW!' : ''}`]); }
+    else if (m === 'escape') { const sv = Math.round(120 - Math.max(0, this.modeT)); coins = win ? 400 : sv * 2; xp = win ? 150 : Math.floor(sv / 2); const nb = recordBest('escape', sv); rows.push(['Time survived', `${sv} s`], ['Longest escape', `${profile.best.escape ?? sv} s${nb ? '  NEW!' : ''}`]); title = win ? 'YOU ESCAPED!' : 'BUSTED'; }
+    else if (m === 'coins') { const n = Math.round(this.st.coins / 5); coins = n * 2; xp = n; const nb = recordBest('coins', n); rows.push(['Coins collected', String(n)], ['Your record', `${profile.best.coins ?? n}${nb ? '  NEW!' : ''}`]); title = 'TIME UP'; }
+    else if (m === 'brawl') {
+      const all = this.riders.slice().sort((a, b) => (b.ko ?? 0) - (a.ko ?? 0)), pos = all.indexOf(this.player) + 1, ko = this.player.ko ?? 0; win = ko > 0 && all[0] === this.player && (all[1]?.ko ?? 0) < ko;   // a tie, or no knock-offs at all, is not a win
+      coins = ko * 20 + (win ? 250 : 0); xp = ko * 10 + (win ? 100 : 0); const nb = recordBest('brawl', ko); title = win ? 'YOU WIN!' : ko === 0 ? 'NO KNOCK-OFFS' : `FINISHED ${pos}${['st', 'nd', 'rd'][pos - 1] ?? 'th'}`;
+      all.slice(0, 6).forEach((r, i) => rows.push([`${i + 1}. ${r.name}${r.isPlayer ? ' (you)' : ''}`, `${r.ko ?? 0} knock-offs`])); if (nb) rows.push(['Your record', `${ko}  NEW!`]);
+    }
+    else if (m === 'knockout') { const n = this.modeScore; coins = win ? 450 : n * 60; xp = win ? 200 : n * 25; rows.push(['Riders beaten', String(n)], ['Riders at the start', String(this.riders.length)]); title = win ? 'LAST RIDER STANDING!' : 'ELIMINATED'; }
+    coins = Math.round(coins * this.D.reward); xp = Math.round(xp * this.D.reward);
+    const g = grant(coins, xp);
+    this.showResult(title, rows, `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
+  }
+
   hud() {
     this.overview();
     this.navUpdate();
     const b = this.player.bike;
     $('spd').textContent = String(Math.round(Math.abs(b.speed) * 3.6));
     ($('boostfill') as HTMLElement).style.width = `${Math.round(b.boostLeft * 100)}%`;
-    if (this.mode === 'race') {
-      const lap = clamp(Math.floor(Math.max(0, this.player.passed - 1) / N) + 1, 1, this.laps), tm = this.phase === 'done' ? this.player.finishedAt : this.raceT;
-      $('race').innerHTML = `<b>${this.rank()}</b> / ${this.riders.length}<br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span> &nbsp;<span style="color:#ff6b6b">${'\u2665'.repeat(Math.max(0, this.lives))}</span><span style="color:#444">${'\u2665'.repeat(this.maxLives - Math.max(0, this.lives))}</span>${this.penalty ? ` <small style="color:#ffb36b">(+${this.penalty}s)</small>` : ''}`;
-    } else $('race').innerHTML = `<b>Free ride</b><br>Explore the city<br><span style="color:#ffd24a">&#9679; ${this.st.coins}</span>`;
+    $('race').innerHTML = this.modeHud();
     const ps: string[] = [];
     if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);
     if (b.shield > 0) ps.push(`<span style="color:${LOOT.shield.color}">SHIELD ${Math.ceil(b.shield)}s</span>`);
@@ -717,14 +820,14 @@ class Game {
     g.strokeStyle = '#4b5565'; g.lineWidth = R * s;
     for (let l = -K; l <= K; l++) { g.beginPath(); g.moveTo((l * P - me.x) * s, -W); g.lineTo((l * P - me.x) * s, W); g.stroke(); g.beginPath(); g.moveTo(-W, (l * P - me.z) * s); g.lineTo(W, (l * P - me.z) * s); g.stroke(); }
     const dot = (x: number, z: number, col: string, r: number) => { g.fillStyle = col; g.beginPath(); g.arc((x - me.x) * s, (z - me.z) * s, r, 0, 7); g.fill(); };
-    if (this.mode === 'race') {
+    if (this.routed) {
       g.strokeStyle = 'rgba(255,210,74,.55)'; g.lineWidth = 3; g.beginPath(); NODE.forEach((n, i) => { const x = (n.x - me.x) * s, z = (n.z - me.z) * s; i ? g.lineTo(x, z) : g.moveTo(x, z); }); g.closePath(); g.stroke();
       const n = this.nextNode(this.player); dot(n.x, n.z, '#ffd24a', 9);
     }
     for (const l of this.loots) if (l.cd <= 0 && Math.hypot(l.x - me.x, l.z - me.z) < 170) dot(l.x, l.z, LOOT[l.type].color, 4);
     g.fillStyle = '#ffb21a'; for (const p of this.pads) if (Math.hypot(p.x - me.x, p.z - me.z) < 170) g.fillRect((p.x - me.x) * s - 3, (p.z - me.z) * s - 3, 6, 6);
     for (const a of this.agents) if (a.kind === 'police') dot(a.x, a.z, a.mode === 'chase' ? '#ff3b3b' : '#5aa0ff', a.mode === 'chase' ? 6 : 4);
-    for (const r of this.riders) if (!r.isPlayer) dot(r.bike.x, r.bike.z, '#59c1ff', 5);
+    for (const r of this.riders) if (!r.isPlayer && !this.eliminated.has(r)) dot(r.bike.x, r.bike.z, '#59c1ff', 5);
     g.rotate(0); g.fillStyle = '#fff'; g.save(); g.rotate(-me.h + Math.PI); g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(-6, 7); g.closePath(); g.fill(); g.restore();
     g.restore();
   }
@@ -815,10 +918,12 @@ net.h.left = (id) => game?.removeRider(id);
 net.h.closed = () => { if (game?.mp) { toast('Disconnected from the server', 2500, '#ff8a8a'); $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); } };
 net.h.results = (list: ResultRow[]) => {
   if (!game?.mp) return; const me = game.player.netId;
+  $('res-title').textContent = 'RESULTS'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
   $('res-list').innerHTML = list.map((r, i) => `<div class="rr ${r.id === me ? 'me' : ''}"><span>${i + 1}</span><b>${r.name.replace(/[<>&]/g, '')}</b><em>${r.time ? fmt(r.time) : 'DNF'}</em></div>`).join('');
   $('results').classList.add('on'); sound.fanfare();
 };
-$('res-back').addEventListener('click', () => { $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab('online', true); });
+$('res-back').addEventListener('click', () => { const was = game?.mp; $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab(was ? 'online' : 'play', true); });
+$('res-again').addEventListener('click', () => { $('results').classList.remove('on'); startGame(); });
 (window as any).__ui = () => ui;
 enterHome();
 preloadModels();

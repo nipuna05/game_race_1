@@ -1,5 +1,6 @@
 /** Bike Race multiplayer server: rooms with a 4-letter code, a lobby, and a relay for riders' states during a race.
  *  Each player's page simulates its own bike; the server keeps the room, the start time, the shared random seed and the results. */
+import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, type C2S, type S2C, type PlayerInfo, type Settings, type ResultRow, type RoomInfo } from '../shared/protocol';
 
@@ -43,7 +44,9 @@ function leave(ws: WebSocket) {
   if (r.status === 'racing' && [...r.players.values()].every((p) => p.fin !== null)) results(r); else snapshot(r);
 }
 
-const wss = new WebSocketServer({ port: PORT, maxPayload: 4096, perMessageDeflate: false });
+// a plain web request gets a friendly 200 (hosts use it as a health check); WebSocket connections are handled on the same port
+const web = createServer((_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('Bike Race game server is running\n'); });
+const wss = new WebSocketServer({ server: web, maxPayload: 4096, perMessageDeflate: false });
 // heartbeat: ping every connection every 15 s and drop the ones that do not answer, so a closed laptop or a lost network frees its place in the room
 // (and the room's host moves on). It also keeps quiet lobby connections from being closed by the proxy in front of the server.
 const alive = new WeakMap<WebSocket, boolean>();
@@ -121,4 +124,4 @@ wss.on('connection', (ws, req) => {
     else if (m.t === 'leave') leave(ws);
   });
 });
-console.log(`Bike Race server listening on ws://0.0.0.0:${PORT}`);
+web.listen(PORT, '0.0.0.0', () => console.log(`Bike Race server listening on port ${PORT} (http and ws)`));

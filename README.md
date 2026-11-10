@@ -70,6 +70,17 @@ The same server runs on Fly.io, so friends anywhere can join from the GitHub Pag
 3. The website uses `wss://game-race-1.fly.dev` by default (set in the Pages workflow); on a home network the page still uses the same PC on port 8090.
 4. Check it works: open `https://game-race-1.fly.dev` in a browser (a working game server answers "Upgrade Required"), then create a room on the website.
 
+## Hosting the server on Render (free)
+
+Render's free web service runs the same server from the `Dockerfile`:
+
+1. Render dashboard, New, Web Service, connect the `game_race_1` repository.
+2. Name `game-race-1`, region Singapore, branch `main`, Language **Docker**, Instance Type **Free**.
+3. Advanced: add the environment variable `ALLOWED_ORIGINS` = `https://nipuna05.github.io,http://localhost:5180,http://localhost:5181`, and set Build Filters (Included Paths) to `server/**`, `shared/**` and `Dockerfile` so changes to the game page do not restart the server.
+4. After the deploy the server is at `wss://<service-name>.onrender.com`; put that in `VITE_WS_URL` in `.github/workflows/pages.yml`.
+
+The free service sleeps after about 15 minutes with nobody connected. The first player then waits up to a minute (the Online tab says "Waking up the server..."), and rooms are lost when it sleeps.
+
 ## Bikes and maps
 
 - **10 bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Vespa 150cc, Mini Chopper 300cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.

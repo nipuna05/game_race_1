@@ -29,6 +29,7 @@ export const defaultServer = () => {
 
 export const net = {
   rooms: [] as RoomInfo[], chatLog: [] as { id: number; name: string; text: string }[], pending: null as Promise<void> | null,
+  waking: false,                                                                  // connecting is taking long: the (free) server is probably waking up
   ws: null as WebSocket | null, lobby: null as Lobby | null, status: 'off' as 'off' | 'connecting' | 'on', error: '', url: '',
   h: {} as NetHandlers,
 
@@ -36,13 +37,14 @@ export const net = {
   get isHost() { return !!this.lobby && this.lobby.host === this.lobby.you; },
 
   connect(url: string): Promise<void> {
-    this.close(); this.url = url.trim(); this.error = ''; this.status = 'connecting'; this.h.lobby?.();
+    this.close(); this.url = url.trim(); this.error = ''; this.status = 'connecting'; this.waking = false; this.h.lobby?.();
     try { localStorage.setItem(URL_KEY, this.url); } catch { /* ignore */ }
     return new Promise((resolve, reject) => {
       let ws: WebSocket; try { ws = new WebSocket(this.url); } catch { this.status = 'off'; this.error = 'That server address is not valid.'; this.h.lobby?.(); reject(); return; }
       this.ws = ws;
-      const timer = window.setTimeout(() => { if (this.status === 'connecting') { this.error = 'Could not reach the server.'; ws.close(); } }, 6000);
-      ws.onopen = () => { if (this.ws !== ws) return; window.clearTimeout(timer); this.status = 'on'; resolve(); };
+      const slow = window.setTimeout(() => { if (this.ws === ws && this.status === 'connecting') { this.waking = true; this.h.lobby?.(); } }, 4000);
+      const timer = window.setTimeout(() => { window.clearTimeout(slow); if (this.status === 'connecting') { this.error = 'Could not reach the server.'; ws.close(); } }, 75000);   // a sleeping free server needs up to a minute
+      ws.onopen = () => { if (this.ws !== ws) return; window.clearTimeout(timer); window.clearTimeout(slow); this.waking = false; this.status = 'on'; resolve(); };
       ws.onerror = () => { if (this.ws === ws && this.status === 'connecting') this.error = 'Could not reach the server. Is it running, and is the address right?'; };
       ws.onclose = () => { window.clearTimeout(timer); if (this.ws !== ws && this.ws !== null) return; const was = this.status; this.status = 'off'; this.ws = null; this.lobby = null; if (was === 'connecting') { if (!this.error) this.error = 'Could not reach the server.'; reject(); } else this.h.closed?.(); this.h.lobby?.(); };
       ws.onmessage = (e) => { try { this.onMsg(JSON.parse(String(e.data)) as S2C); } catch { /* ignore */ } };

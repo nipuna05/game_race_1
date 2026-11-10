@@ -14,8 +14,11 @@
 
 - Profile (name, level, stats), coins, bike collection, up to 11 rivals
 
+- Multiplayer: server, rooms with codes, lobby, synced riders, fights, shared crates, results
+
 ## Next
-- Multiplayer (online rooms; same idea as the Fight game: one shared simulation, a Node `ws` server)
+- Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
+- Online police and traffic, text chat, kick/ban, quick-match
 - Traffic lights and pedestrian crossings
 - Better bike and rider models (real GLB assets, with licence recorded)
 - More maps (rain, suburbs, off-road shortcuts)

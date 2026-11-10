@@ -1,6 +1,7 @@
 import { MAPS, clamp, type MapDef } from './city';
 import { BIKES, type BikeDef } from './bike';
 import type { Sound } from './audio';
+import { net, defaultServer } from './net';
 import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike } from './profile';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -25,8 +26,8 @@ export const loadBest = (m = opt.map): number => { try { return Number(localStor
 export const saveBest = (t: number, m = opt.map) => { try { localStorage.setItem(bestKey(m), String(t)); } catch { /* ignore */ } };
 
 export interface Hooks { start(): void; preview(): void; mapChanged(): void; tab(name: string): void; resume(): void; restart(): void; toMain(): void }
-type Tab = 'play' | 'garage' | 'maps' | 'profile' | 'controls' | 'settings';
-const TABS: [Tab, string, string][] = [['play', 'PLAY', 'Start a race'], ['garage', 'GARAGE', 'Bikes and colours'], ['maps', 'MAPS', 'Pick a city'], ['profile', 'PROFILE', 'Stats and level'], ['controls', 'CONTROLS', 'Keys'], ['settings', 'SETTINGS', 'Sound']];
+type Tab = 'play' | 'online' | 'garage' | 'maps' | 'profile' | 'controls' | 'settings';
+const TABS: [Tab, string, string][] = [['play', 'PLAY', 'Start a race'], ['online', 'ONLINE', 'Race friends'], ['garage', 'GARAGE', 'Bikes and colours'], ['maps', 'MAPS', 'Pick a city'], ['profile', 'PROFILE', 'Stats and level'], ['controls', 'CONTROLS', 'Keys'], ['settings', 'SETTINGS', 'Sound']];
 const COLORS = ['', '#e74c3c', '#ff7a1a', '#ffd24a', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#ff5fa8', '#ecf0f1', '#2c3e50'];
 
 let sound: Sound, hooks: Hooks, tab: Tab = 'play';
@@ -44,6 +45,7 @@ export function initMenu(h: Hooks, s: Sound) {
   $('p-restart').addEventListener('click', () => hooks.restart());
   $('p-main').addEventListener('click', () => hooks.toMain());
   $('chip').addEventListener('click', () => setTab('profile'));
+  net.h.lobby = () => { if (tab === 'online' && !$('home').classList.contains('off')) render(); };
   onProfile(renderChip); renderChip();
   setTab('play', true);
 }
@@ -56,6 +58,7 @@ let lastHover: Element | null = null;
 export function showHome(on: boolean) { $('home').classList.toggle('off', !on); if (on) setTab(tab, true); }
 export function showPause(on: boolean) { $('pause').classList.toggle('on', on); }
 
+export const syncMe = () => net.me(profile.name, opt.bike, opt.color);
 export function setTab(t: Tab, quiet = false) {
   tab = t; if (!quiet) sound?.ui('tab');
   if (t !== 'garage' && viewId !== opt.bike) { viewId = opt.bike; hooks?.preview(); }
@@ -88,6 +91,28 @@ function render() {
       ${opt.mode === 'race' ? seg('laps', 'Laps', [['1', '1'], ['2', '2'], ['3', '3']]) + seg('rivals', 'Rival riders', [['0', '0'], ['3', '3'], ['5', '5'], ['8', '8'], ['11', '11']]) + seg('field', 'Rivals ride', [['same', 'Same as me'], ['mixed', 'Mixed bikes']]) : ''}
       <button class="go" id="go">${opt.mode === 'race' ? 'START RACE' : 'START RIDING'}</button>
       <div class="best">${best && opt.mode === 'race' ? `Your best on ${m.name}: ${fmt(best)}` : '&nbsp;'}</div>`;
+  } else if (tab === 'online') {
+    const L = net.lobby;
+    if (!L) {
+      h = `<h2>Online</h2>
+        <div class="desc">Race your friends. One person creates a room and shares the 4-letter code. Everyone on the same network can join.</div>
+        <h3>Server</h3><input id="srv" class="txt" value="${net.url || defaultServer()}" spellcheck="false" />
+        <h3>Join a room</h3><div class="joinrow"><input id="code" class="txt" maxlength="4" placeholder="CODE" spellcheck="false" /><button class="go" id="joinbtn">JOIN</button></div>
+        <button class="go" id="createbtn" style="margin-top:14px">CREATE A ROOM</button>
+        ${net.status === 'connecting' ? '<div class="best">Connecting...</div>' : ''}${net.error ? `<div class="err">${net.error}</div>` : ''}
+        <div class="foot" style="margin-top:12px">Your bike, colour and name from the Garage and Profile are used. Police and traffic are off online for now.</div>`;
+    } else {
+      const host = net.isHost, st = L.settings;
+      h = `<h2>Room <span class="code">${L.code}</span></h2>
+        <div class="desc">Share the code. ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
+        <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}</small></div>`).join('')}</div>
+        ${host ? `<h3>Race settings</h3>
+          <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
+          <div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+          <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START RACE</button>`
+        : `<h3>Race settings</h3><div class="desc">${MAPS.find((x) => x.id === st.map)?.name ?? st.map} &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}<br>Waiting for the host to start...</div>`}
+        <button class="danger" id="mpleave">Leave room</button>${net.error ? `<div class="err">${net.error}</div>` : ''}`;
+    }
   } else if (tab === 'garage') {
     const b = previewDef(), have = owns(b.id), ownedN = BIKES.filter((x) => owns(x.id)).length;
     h = `<h2>Garage <span class="cnt">&#9679; ${profile.coins.toLocaleString()} coins &middot; collection ${ownedN}/${BIKES.length}</span></h2>
@@ -137,14 +162,23 @@ function bind(p: HTMLElement) {
     if (s.dataset.k === 'mode') render(); else s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
   }));
   p.querySelectorAll<HTMLElement>('[data-go]').forEach((t) => t.addEventListener('click', () => setTab(t.dataset.go as Tab, true)));
-  p.querySelectorAll<HTMLElement>('[data-bike]').forEach((c) => c.addEventListener('click', () => { viewId = c.dataset.bike!; if (owns(viewId)) { opt.bike = viewId; save(); sound.setBike(bikeDef().cc); } render(); hooks.preview(); }));
-  p.querySelectorAll<HTMLElement>('[data-use]').forEach((c) => c.addEventListener('click', () => { opt.bike = c.dataset.use!; viewId = opt.bike; save(); sound.setBike(bikeDef().cc); render(); hooks.preview(); }));
-  p.querySelectorAll<HTMLElement>('[data-buy]').forEach((c) => c.addEventListener('click', () => { const b = BIKES.find((x) => x.id === c.dataset.buy)!; if (buyBike(b.id, b.price)) { opt.bike = b.id; viewId = b.id; save(); sound.loot(); render(); hooks.preview(); } }));
-  p.querySelectorAll<HTMLElement>('[data-color]').forEach((c) => c.addEventListener('click', () => { opt.color = c.dataset.color!; save(); render(); hooks.preview(); }));
+  p.querySelectorAll<HTMLElement>('[data-bike]').forEach((c) => c.addEventListener('click', () => { viewId = c.dataset.bike!; if (owns(viewId)) { opt.bike = viewId; save(); sound.setBike(bikeDef().cc); syncMe(); } render(); hooks.preview(); }));
+  p.querySelectorAll<HTMLElement>('[data-use]').forEach((c) => c.addEventListener('click', () => { opt.bike = c.dataset.use!; viewId = opt.bike; save(); sound.setBike(bikeDef().cc); syncMe(); render(); hooks.preview(); }));
+  p.querySelectorAll<HTMLElement>('[data-buy]').forEach((c) => c.addEventListener('click', () => { const b = BIKES.find((x) => x.id === c.dataset.buy)!; if (buyBike(b.id, b.price)) { opt.bike = b.id; viewId = b.id; save(); sound.loot(); syncMe(); render(); hooks.preview(); } }));
+  p.querySelectorAll<HTMLElement>('[data-color]').forEach((c) => c.addEventListener('click', () => { opt.color = c.dataset.color!; save(); syncMe(); render(); hooks.preview(); }));
   p.querySelectorAll<HTMLElement>('[data-map]').forEach((c) => c.addEventListener('click', () => { opt.map = c.dataset.map!; save(); render(); hooks.mapChanged(); }));
   p.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((r) => r.addEventListener('input', () => { const k = r.dataset.vol as 'master' | 'music' | 'sfx'; sound.setVol(k, Number(r.value) / 100); $('v-' + k).textContent = `${r.value}%`; }));
   p.querySelectorAll<HTMLInputElement>('[data-vol="sfx"]').forEach((r) => r.addEventListener('change', () => sound.thump(6)));
   $('go')?.addEventListener('click', () => hooks.start());
-  const pn = p.querySelector<HTMLInputElement>('#pname'); if (pn) { pn.addEventListener('change', () => { setName(pn.value); pn.value = profile.name; }); pn.addEventListener('keydown', (e) => e.stopPropagation()); }
+  const connectThen = (act: () => void) => { const u = (p.querySelector<HTMLInputElement>('#srv')?.value || defaultServer()).trim(); net.connect(u).then(act).catch(() => { /* the error is shown in the panel */ }); };
+  p.querySelector('#createbtn')?.addEventListener('click', () => connectThen(() => net.create(profile.name, opt.bike, opt.color)));
+  const doJoin = () => { const code = (p.querySelector<HTMLInputElement>('#code')?.value || '').trim(); if (code.length === 4) connectThen(() => net.join(code, profile.name, opt.bike, opt.color)); };
+  p.querySelector('#joinbtn')?.addEventListener('click', doJoin);
+  p.querySelectorAll<HTMLInputElement>('.txt').forEach((i) => { i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { if (i.id === 'code') doJoin(); } }); });
+  p.querySelector('#mpmap')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(b.dataset.v!, net.lobby.settings.laps); });
+  p.querySelector('#mplaps')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, Number(b.dataset.v)); });
+  p.querySelector('#mpstart')?.addEventListener('click', () => net.start());
+  p.querySelector('#mpleave')?.addEventListener('click', () => { net.close(); render(); });
+  const pn = p.querySelector<HTMLInputElement>('#pname'); if (pn) { pn.addEventListener('change', () => { setName(pn.value); pn.value = profile.name; syncMe(); }); pn.addEventListener('keydown', (e) => e.stopPropagation()); }
   p.querySelector('#resetp')?.addEventListener('click', () => { if (confirm('Reset your name, level, stats, coins and bikes? Best times are kept.')) { resetProfile(); render(); } });
 }

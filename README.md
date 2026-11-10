@@ -27,6 +27,17 @@ npm run build
 | R | Put the bike back on the road |
 | Esc | Menu |
 
+## Multiplayer
+
+```
+npm run server      # the game server, ws://localhost:8090
+npm run dev         # the game page
+```
+
+On the home page, ONLINE: one player creates a room and shares the 4-letter code, others join with it. The host picks the map and laps and starts the race. Everyone sees the other riders, fights (punches, kicks and rear hits land on the other player's page), and grabs the same crates (the first to take a crate gets it). Results show when everyone has finished (or 45 seconds after the first finisher). Online races have no police or traffic yet.
+
+Each page simulates its own bike and the server relays the states, picks the start time and a shared seed, and keeps the room (`server/index.ts`, messages in `shared/protocol.ts`). On a home network the game page uses the same PC for the server, so friends just open the page address.
+
 ## Bikes and maps
 
 - **8 detailed bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.

@@ -1,5 +1,6 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 import { clamp, collideWorld, GRIP } from './city';
+import { makeBikeMesh, type BikeMesh } from './bikemodel';
 
 export interface Input { throttle: number; steer: number; hand: boolean; boost: boolean }
 export const MAX_SPEED = 40, BOOST_SPEED = 56;
@@ -17,40 +18,11 @@ export const BIKES: BikeDef[] = [
   { id: 'hyper', category: 'Hyperbike', cc: 1400, name: 'Hyperbike', desc: 'The fastest of all with a huge boost. Wild to control: for experts.', top: 1.38, accel: 1.3, turn: 0.7, brake: 1.2, boost: 1.55, wheel: 1.0, len: 1.25, color: 0x9b59b6, fairing: true },
 ];
 
-const frame = new THREE.MeshLambertMaterial({ color: 0x23272e }), tyre = new THREE.MeshLambertMaterial({ color: 0x0c0d10 });
-const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.22, 14);
-const bodyGeo = new THREE.BoxGeometry(0.34, 0.45, 1.5), tankGeo = new THREE.BoxGeometry(0.4, 0.32, 0.6), torsoGeo = new THREE.BoxGeometry(0.46, 0.7, 0.3), headGeo = new THREE.SphereGeometry(0.24, 10, 8);
-const armGeo = new THREE.BoxGeometry(0.12, 0.12, 0.55), legGeo = new THREE.BoxGeometry(0.16, 0.6, 0.18);
-
-export interface BikeMesh { root: THREE.Group; lean: THREE.Group; wheels: THREE.Mesh[]; arms: { r: THREE.Mesh; l: THREE.Mesh }; legs: { r: THREE.Mesh; l: THREE.Mesh }; aura: THREE.Mesh }
-export function makeBikeMesh(color: number, def: BikeDef = BIKES[0]): BikeMesh {
-  const root = new THREE.Group(), lean = new THREE.Group(); root.add(lean);
-  const wheels: THREE.Mesh[] = [];
-  for (const z of [0.85 * def.len, -0.85 * def.len]) { const w = new THREE.Mesh(wheelGeo, tyre); w.rotation.z = Math.PI / 2; w.scale.set(def.wheel, 1, def.wheel); w.position.set(0, 0.42 * def.wheel, z); lean.add(w); wheels.push(w); }
-  const col = new THREE.MeshLambertMaterial({ color });
-  const body = new THREE.Mesh(bodyGeo, frame); body.position.set(0, 0.7, 0); body.scale.z = def.len; lean.add(body);
-  const tank = new THREE.Mesh(tankGeo, col); tank.position.set(0, 1.0, 0.25 * def.len); if (def.id === 'scooter') tank.scale.set(1.1, 0.5, 1.2); lean.add(tank);
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.7), col); tail.position.set(0, 0.95, -0.55 * def.len); lean.add(tail);
-  const torso = new THREE.Mesh(torsoGeo, col); torso.position.set(0, 1.55, -0.15 * def.len); torso.rotation.x = def.fairing ? 0.7 : def.upright ? 0.05 : 0.35; lean.add(torso);
-  const head = new THREE.Mesh(headGeo, new THREE.MeshLambertMaterial({ color: 0xf2f2f2 })); head.position.set(0, def.fairing ? 1.9 : 2.05, def.fairing ? 0.3 : 0.05); lean.add(head);
-  // handlebars, and a fairing (sport bikes) or a tall front fender (enduro)
-  const bars = new THREE.Mesh(new THREE.BoxGeometry(def.wide ? 1.1 : 0.7, 0.07, 0.07), frame); bars.position.set(0, def.upright ? 1.45 : 1.2, 0.62 * def.len); lean.add(bars);
-  if (def.fairing) { const fr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.55), col); fr.position.set(0, 1.05, 0.75 * def.len); fr.rotation.x = -0.35; lean.add(fr); }
-  if (def.id === 'dirt') { const fe = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.6), col); fe.position.set(0, 1.25, 0.95 * def.len); fe.rotation.x = 0.25; lean.add(fe); }
-  const limbs: THREE.Mesh[][] = [];   // [right, left]; the bike faces +z, so its right side is -x
-  for (const s of [-1, 1]) {
-    const arm = new THREE.Mesh(armGeo, col); arm.position.set(s * 0.3, 1.5, 0.35); arm.rotation.x = 0.4; lean.add(arm);
-    const leg = new THREE.Mesh(legGeo, frame); leg.position.set(s * 0.26, 0.85, -0.1); lean.add(leg);
-    limbs.push([arm, leg]);
-  }
-  const aura = new THREE.Mesh(new THREE.SphereGeometry(1.9, 14, 10), new THREE.MeshBasicMaterial({ color: 0x66ff99, transparent: true, opacity: 0.22, depthWrite: false }));
-  aura.position.y = 1.1; aura.visible = false; root.add(aura);
-  return { root, lean, wheels, arms: { r: limbs[0][0], l: limbs[1][0] }, legs: { r: limbs[0][1], l: limbs[1][1] }, aura };
-}
+export { makeBikeMesh, type BikeMesh };
 
 export class Bike {
   x = 0; z = 0; h = 0; speed = 0; lat = 0; boostLeft = 1; leanAngle = 0; boosting = false;
-  mesh: BikeMesh; crash = 0;
+  mesh: BikeMesh; crash = 0; steerAngle = 0;
   skill = 1;
   // fighting and falling
   balance = 1; fall = 0; fallDir = 1; inv = 0; punchCd = 0; kickCd = 0; swingT = 0; swingKind: 'punch' | 'kick' = 'punch'; swingSide: 1 | -1 = 1;
@@ -67,6 +39,7 @@ export class Bike {
     this.turbo = Math.max(0, this.turbo - dt); this.shield = Math.max(0, this.shield - dt); this.power = Math.max(0, this.power - dt); this.padT = Math.max(0, this.padT - dt); this.inv = Math.max(0, this.inv - dt);
     if (this.fall > 0) return this.stepFall(dt);
     this.balance = Math.min(1, this.balance + dt * 0.22);
+    this.steerAngle += (inp.steer * 0.4 - this.steerAngle) * Math.min(1, dt * 10);
     this.boosting = inp.boost && this.boostLeft > 0.02 && inp.throttle > 0;
     if (this.boosting) this.boostLeft = Math.max(0, this.boostLeft - dt * 0.28 / d.boost); else this.boostLeft = Math.min(1, this.boostLeft + dt * 0.07);
     const top = (this.boosting ? BOOST_SPEED * (1 + (d.boost - 1) * 0.5) : MAX_SPEED) * d.top * this.skill * (this.turbo > 0 ? 1.3 : 1) * (this.padT > 0 ? 1.2 : 1);
@@ -132,17 +105,18 @@ export class Bike {
     m.root.position.set(this.x, this.fall > 0 ? 0.3 : 0, this.z); m.root.rotation.y = this.h;
     m.root.visible = this.inv <= 0 || this.fall > 0 || Math.floor(this.inv * 12) % 2 === 0;
     m.lean.rotation.z = this.leanAngle;
-    // punch / kick animation: the arm or leg swings out to the side
+    // punch / kick animation: the arm or leg swings out to the side; the front wheel and bars turn with the steering
+    m.steer.rotation.y = -this.steerAngle;
     const sw = this.swingT > 0 ? Math.sin((1 - this.swingT / (this.swingKind === 'kick' ? 0.35 : 0.25)) * Math.PI) : 0;
     for (const side of [1, -1] as const) {
       const arm = side === 1 ? m.arms.r : m.arms.l, leg = side === 1 ? m.legs.r : m.legs.l, on = this.swingSide === side ? sw : 0, dir = side === 1 ? -1 : 1;
-      arm.rotation.set(0.4, this.swingKind === 'punch' ? dir * on * 1.3 : 0, 0); arm.position.x = dir * (0.3 + (this.swingKind === 'punch' ? on * 0.55 : 0));
-      leg.rotation.z = this.swingKind === 'kick' ? dir * -on * 1.2 : 0; leg.position.x = dir * (0.26 + (this.swingKind === 'kick' ? on * 0.5 : 0));
+      arm.rotation.y = this.swingKind === 'punch' ? dir * on * 1.3 : 0;
+      leg.rotation.z = this.swingKind === 'kick' ? dir * -on * 1.2 : 0;
     }
     // aura for the active power-up
     const au = m.aura; au.visible = this.shield > 0 || this.power > 0 || this.turbo > 0;
-    if (au.visible) (au.material as THREE.MeshBasicMaterial).color.setHex(this.shield > 0 ? 0x66ff99 : this.power > 0 ? 0xc77dff : 0xff6a4a);
-    for (const w of m.wheels) w.rotation.x += this.speed * dt / 0.42;
+    if (au.visible) (au.material as import('three').MeshBasicMaterial).color.setHex(this.shield > 0 ? 0x66ff99 : this.power > 0 ? 0xc77dff : 0xff6a4a);
+    for (const w of m.wheels) w.rotation.x += this.speed * dt / 0.35;
   }
 }
 

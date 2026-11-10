@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildCity, configure, MAPS, P, R, K, HALF, rnd, clamp, type City, type MapDef } from './city';
 import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Sound } from './audio';
 import { opt, initMenu, showHome, showPause, mapDef, bikeDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
@@ -16,6 +17,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fbbe8);
 scene.fog = new THREE.Fog(0x8fbbe8, 120, 420);
 const camera = new THREE.PerspectiveCamera(65, 1, 0.3, 700);
+{ const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.75; }   // reflections for the bikes' paint and chrome
 const sun = new THREE.DirectionalLight(0xfff1d6, 1.6); sun.position.set(120, 200, 80); scene.add(sun);
 let city: City | null = null;
 const hemi = new THREE.HemisphereLight(0xdbe9ff, 0x4a4f58, 1.15); scene.add(hemi);

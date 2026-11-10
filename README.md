@@ -29,7 +29,7 @@ npm run build
 
 ## Bikes and maps
 
-- **8 bikes** by category and engine size: Scooter 125cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.
+- **8 detailed bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.
 - **5 maps**: Downtown, Neon Night, Desert Highway (wide, fast), Old Town (tight streets), Snow Village (slippery).
 
 ## Fighting
@@ -50,7 +50,9 @@ Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange 
 ## Code
 
 - `src/city.ts`: road grid, buildings, world collision.
-- `src/bike.ts`: bike physics, model and the rider AI.
+- `src/bike.ts`: bike physics, stats and the rider AI.
+- `src/bikemodel.ts`: the detailed bike and rider models, built from shapes in code (no model files).
+- `src/menu.ts`: the home page, garage, maps, settings and pause menu.
 - `src/agents.ts`: cars, pedestrians and police cars.
 - `src/main.ts`: game loop, race, police logic, HUD and minimap.
 - `src/audio.ts`: engine, siren and crash sounds.

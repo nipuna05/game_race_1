@@ -12,6 +12,7 @@ export const BIKE_MODELS: Record<string, BikeModel> = {
   sport: { file: 'models/bikes/sv650.glb', rotY: 0, length: 2.15, tint: 'Blue' },
   cruiser: { file: 'models/bikes/poly.glb', rotY: -Math.PI / 2, length: 2.6 },
   scooter: { file: 'models/bikes/vrmobil.glb', rotY: Math.PI / 2, length: 1.9 },
+  chopper: { file: 'models/kenney/vehicle-motorcycle.glb', rotY: 0, length: 2.2 },
   vespa: { file: 'models/bikes/vespa.glb', rotY: 0, length: 1.95, tint: 'Material.001' },
   dirt: { file: 'models/bikes/military.glb', rotY: 0, length: 2.35, tint: 'Green_Motor' },
 };

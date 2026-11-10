@@ -40,7 +40,7 @@ Each page simulates its own bike and the server relays the states, picks the sta
 
 ## Bikes and maps
 
-- **9 detailed bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Vespa 150cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.
+- **10 bikes** (tyres, spoked or cast wheels, forks that turn with the bars, frame, engine, exhaust, tank, fairings and a rider) by category and engine size: Scooter 125cc, Vespa 150cc, Mini Chopper 300cc, Street 400cc, Enduro 450cc, Sport 600cc, Cafe Racer 750cc, Superbike 1000cc, Cruiser 1200cc, Hyperbike 1400cc. Each has its own speed, pickup, handling, brakes, boost and look.
 - **6 maps**: Downtown, Neon Night, Desert Highway (wide, fast), Old Town (tight streets), Snow Village (slippery), Toy Town (built from Kenney's building models).
 - **Downloaded models** (optional): `public/models/bikes/` can hold `sv650.glb`, `poly.glb`, `vrmobil.glb`, `military.glb` and `vespa.glb`, which replace the Sport, Cruiser, Scooter, Enduro and Vespa bodies; Kenney's trucks drive in the traffic. See `CREDITS.md`. The model preview page is `/modelpreview.html?f=/models/bikes/sv650.glb`.
 

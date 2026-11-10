@@ -26,7 +26,8 @@ const STYLES: Record<string, Style> = {
 
 /** Rider position for bikes that use a downloaded model whose seat is not where the built-in bike's is. */
 const MODEL_STYLES: Record<string, Style> = { dirt: { ...STYLES.dirt, seatY: 0.8, seatZ: -0.2, pose: 'semi', wr: 0.34, fender: 'short' } };
-STYLES.vespa = STYLES.scooter;   // the Vespa is built like the scooter (rider position)
+STYLES.vespa = STYLES.scooter;
+STYLES.chopper = { ...STYLES.cruiser, seatY: 0.6, seatZ: -0.12, wb: 1.5, wr: 0.3, bars: 'moto', exhaust: 'side' };   // rider position for Kenney's little chopper   // the Vespa is built like the scooter (rider position)
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 function std(color: number, metal = 0.1, rough = 0.6, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {

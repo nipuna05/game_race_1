@@ -2,7 +2,7 @@
 
 ## Models in the repository
 
-- **Kenney** - [Starter Kit Racing](https://github.com/KenneyNL/Starter-Kit-Racing) (trucks used as traffic) and [Starter Kit City Builder](https://github.com/KenneyNL/Starter-Kit-City-Builder) (buildings of the Toy Town map). MIT licence, copies in `public/models/kenney/LICENSE.txt` and `public/models/kenney-city/LICENSE.txt`. Thanks Kenney! (kenney.nl)
+- **Kenney** - [Starter Kit Racing](https://github.com/KenneyNL/Starter-Kit-Racing) (the Mini Chopper bike and the trucks used as traffic) and [Starter Kit City Builder](https://github.com/KenneyNL/Starter-Kit-City-Builder) (buildings of the Toy Town map). MIT licence, copies in `public/models/kenney/LICENSE.txt` and `public/models/kenney-city/LICENSE.txt`. Thanks Kenney! (kenney.nl)
 
 ## Models used on the developer's PC only (not in the repository)
 

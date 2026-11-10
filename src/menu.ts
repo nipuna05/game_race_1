@@ -2,7 +2,7 @@ import { MAPS, clamp, type MapDef } from './city';
 import { BIKES, setSteer, type BikeDef } from './bike';
 import type { Sound } from './audio';
 import { net, defaultServer } from './net';
-import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike } from './profile';
+import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike, loginInfo, claimLogin, claimDaily, claimDailyBonus, dailyBonusReady, claimSetTask, claimSetReward, hasClaimable, dailyList, setList, setStatus, msToReset, SETS, LOGIN_REWARDS } from './profile';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QS = new URLSearchParams(location.search);
@@ -38,11 +38,11 @@ export const loadBest = (m = opt.map): number => { try { return Number(localStor
 export const saveBest = (t: number, m = opt.map) => { try { localStorage.setItem(bestKey(m), String(t)); } catch { /* ignore */ } };
 
 export interface Hooks { start(): void; preview(): void; mapChanged(): void; tab(name: string): void; resume(): void; restart(): void; toMain(): void }
-type Tab = 'play' | 'online' | 'garage' | 'maps' | 'profile' | 'controls' | 'settings';
-const TABS: [Tab, string, string][] = [['play', 'PLAY', 'Start a race'], ['online', 'ONLINE', 'Race friends'], ['garage', 'GARAGE', 'Bikes and colours'], ['maps', 'MAPS', 'Pick a city'], ['profile', 'PROFILE', 'Stats and level'], ['controls', 'CONTROLS', 'Keys'], ['settings', 'SETTINGS', 'Sound']];
+type Tab = 'play' | 'online' | 'garage' | 'maps' | 'rewards' | 'profile' | 'controls' | 'settings';
+const TABS: [Tab, string, string][] = [['play', 'PLAY', 'Start a race'], ['online', 'ONLINE', 'Race friends'], ['garage', 'GARAGE', 'Bikes and colours'], ['maps', 'MAPS', 'Pick a city'], ['rewards', 'REWARDS', 'Daily gifts and tasks'], ['profile', 'PROFILE', 'Stats and level'], ['controls', 'CONTROLS', 'Keys'], ['settings', 'SETTINGS', 'Sound']];
 const COLORS = ['', '#e74c3c', '#ff7a1a', '#ffd24a', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#ff5fa8', '#ecf0f1', '#2c3e50'];
 
-let sound: Sound, hooks: Hooks, tab: Tab = 'play', playSub: 'type' | 'rules' = 'type';
+let sound: Sound, hooks: Hooks, tab: Tab = 'play', playSub: 'type' | 'rules' = 'type', profSub: 'stats' | 'records' | 'history' = 'stats', rwSub: 'daily' | 'sets' = 'daily', setSel = 'rookie', rewardMsg = '';
 
 export function initMenu(h: Hooks, s: Sound) {
   hooks = h; sound = s;
@@ -61,9 +61,10 @@ export function initMenu(h: Hooks, s: Sound) {
   net.h.rooms = net.h.lobby;
   net.h.chat = (c) => { const log = document.getElementById('chatlog'); if (!log) return; const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = c.name.replace(/[<>&"]/g, ''); d.append(b, ' ' + c.text.replace(/[<>&"]/g, '')); log.appendChild(d); log.scrollTop = log.scrollHeight; };
   window.setInterval(() => { if (tab === 'online' && !net.lobby && net.status === 'on' && !$('home').classList.contains('off')) net.list(); }, 4000);   // keep the room list fresh
-  onProfile(renderChip); renderChip();
+  onProfile(renderChip); onProfile(renderBadge); renderChip(); renderBadge();
   setTab('play', true);
 }
+function renderBadge() { document.querySelector('#nav [data-t=rewards]')?.classList.toggle('has', hasClaimable()); }
 function renderChip() {
   const li = levelInfo();
   $('chip').innerHTML = `<b>${profile.name}</b><span>LV ${li.level}</span><small>${titleOf(li.level)} &middot; <i style="color:#ffd24a;font-style:normal"><i class="coin"></i> ${profile.coins.toLocaleString()}</i></small><div class="xpbar"><u style="width:${Math.round(li.frac * 100)}%"></u></div>`;
@@ -109,11 +110,13 @@ function render() {
       ${seg('traffic', 'Traffic and people', [['0', 'Empty'], ['1', 'Normal'], ['2', 'Busy']])}
       ${md.laps ? seg('laps', 'Laps', [['1', '1'], ['2', '2'], ['3', '3']]) : ''}${md.rivals ? seg('rivals', md.id === 'race' ? 'Rival riders' : 'Rival riders (at least 5)', [['0', '0'], ['3', '3'], ['5', '5'], ['8', '8'], ['11', '11']]) : ''}${md.id === 'race' ? seg('field', 'Rivals ride', [['same', 'Same as me'], ['mixed', 'Mixed bikes']]) : ''}`;
     h = `<h2>Play</h2>
-      <div class="mini"><div class="tile" data-go="garage"><small>Bike</small><b>${b.name}</b><span>${b.cc} cc &middot; ${b.category}</span></div><div class="tile" data-go="maps"><small>Map</small><b>${m.name}</b><span>${m.desc.split('.')[0]}</span></div></div>
+      <div class="pbody">
+      <div class="mini slim"><div class="tile" data-go="garage"><small>Bike</small><b>${b.name}</b><span>${b.cc} cc &middot; ${b.category}</span></div><div class="tile" data-go="maps"><small>Map</small><b>${m.name}</b><span>${m.desc.split('.')[0]}</span></div></div>
       <div class="subbar" id="psub"><button data-sub="type" class="${playSub === 'type' ? 'on' : ''}">Game type</button><button data-sub="rules" class="${playSub === 'rules' ? 'on' : ''}">Rules</button></div>
       ${playSub === 'type' ? typePage : rulesPage}
-      <button class="go" id="go">START ${md.name.toUpperCase()}</button>
-      <div class="best">${best && (md.id === 'race' || md.id === 'trial') ? `Your best ${md.id === 'trial' ? 'trial ' : ''}time on ${m.name}: ${fmt(best)}` : '&nbsp;'}</div>`;
+      </div>
+      <div class="pfoot"><button class="go" id="go">START ${md.name.toUpperCase()}</button>
+      <div class="best">${best && (md.id === 'race' || md.id === 'trial') ? `Your best ${md.id === 'trial' ? 'trial ' : ''}time on ${m.name}: ${fmt(best)}` : '&nbsp;'}</div></div>`;
   } else if (tab === 'online') {
     const L = net.lobby, clean = (t: string) => t.replace(/[<>&"]/g, '');
     if (!L) {
@@ -147,33 +150,63 @@ function render() {
     }
   } else if (tab === 'garage') {
     const b = previewDef(), have = owns(b.id), ownedN = BIKES.filter((x) => owns(x.id)).length;
-    h = `<h2>Garage <span class="cnt"><i class="coin"></i> ${profile.coins.toLocaleString()} coins &middot; collection ${ownedN}/${BIKES.length}</span></h2>
-      <div class="cards">${BIKES.map((x) => `<div class="card ${x.id === b.id ? 'on' : ''} ${owns(x.id) ? '' : 'locked'}" data-bike="${x.id}"><em>${owns(x.id) ? (x.id === opt.bike ? 'RIDING' : x.cc + 'cc') : '&#128274; ' + x.price.toLocaleString()}</em><b>${x.name}</b><small>${x.cc}cc &middot; ${x.category}</small></div>`).join('')}</div>
+    h = `<h2>Garage <span class="cnt"><i class="coin"></i> ${profile.coins.toLocaleString()} &middot; collection ${ownedN}/${BIKES.length}</span></h2>
+      <div class="pbody">
+      <div class="cards bikes">${BIKES.map((x) => `<div class="card ${x.id === b.id ? 'on' : ''} ${owns(x.id) ? '' : 'locked'}" data-bike="${x.id}"><b>${x.name}</b><em>${owns(x.id) ? (x.id === opt.bike ? 'RIDING' : x.cc + 'cc') : '&#128274; ' + x.price.toLocaleString()}</em></div>`).join('')}</div>
       <h3>${b.name} &middot; ${b.category} &middot; ${b.cc} cc</h3>
-      <div class="desc">${b.desc}</div>
-      ${bar('Speed', b.top, 0.6, 1.4)}${bar('Pickup', b.accel, 0.6, 1.35)}${bar('Handling', b.turn, 0.65, 1.5)}${bar('Braking', b.brake, 0.8, 1.35)}${bar('Boost', b.boost, 0.5, 1.6)}
-      ${have ? (b.id === opt.bike ? '<div class="owned">&#10003; Your bike</div>' : `<button class="go small" data-use="${b.id}">RIDE THIS BIKE</button>`) : `<button class="go small buy" data-buy="${b.id}" ${profile.coins >= b.price ? '' : 'disabled'}>BUY &middot; <i class="coin"></i> ${b.price.toLocaleString()}${profile.coins >= b.price ? '' : ` (need ${(b.price - profile.coins).toLocaleString()} more)`}</button>`}
-      <h3>Colour</h3>
-      <div class="swatches">${COLORS.map((c) => `<div class="sw ${opt.color === c ? 'on' : ''}" data-color="${c}" style="background:${c || `linear-gradient(135deg, #ffd24a 50%, #e74c3c 50%)`}" title="${c ? c : 'Bike\'s own colour'}"></div>`).join('')}</div>`;
+      <div class="desc" style="margin-bottom:6px">${b.desc}</div>
+      <div class="statgrid">${bar('Speed', b.top, 0.6, 1.4)}${bar('Pickup', b.accel, 0.6, 1.35)}${bar('Handling', b.turn, 0.65, 1.5)}${bar('Braking', b.brake, 0.8, 1.35)}${bar('Boost', b.boost, 0.5, 1.6)}</div>
+      <div class="row" style="margin:10px 0 0"><span>Colour</span><div class="swatches">${COLORS.map((c) => `<div class="sw ${opt.color === c ? 'on' : ''}" data-color="${c}" style="background:${c || `linear-gradient(135deg, #ffd24a 50%, #e74c3c 50%)`}" title="${c ? c : 'Bike\'s own colour'}"></div>`).join('')}</div></div>
+      </div>
+      <div class="pfoot">${have ? (b.id === opt.bike ? '<div class="owned" style="text-align:center">&#10003; Your bike</div>' : `<button class="go small" data-use="${b.id}">RIDE THIS BIKE</button>`) : `<button class="go small buy" data-buy="${b.id}" ${profile.coins >= b.price ? '' : 'disabled'}>BUY &middot; <i class="coin"></i> ${b.price.toLocaleString()}${profile.coins >= b.price ? '' : ` (need ${(b.price - profile.coins).toLocaleString()} more)`}</button>`}</div>`;
   } else if (tab === 'maps') {
-    h = `<h2>Maps</h2><div class="cards" style="grid-template-columns:1fr">${MAPS.map((m) => { const bt = loadBest(m.id); return `<div class="card map ${m.id === opt.map ? 'on' : ''}" data-map="${m.id}">${mapPic(m)}<div class="mt"><b>${m.name}</b>${bt ? `<em>${fmt(bt)}</em>` : ''}<small>${m.desc}</small></div></div>`; }).join('')}</div>`;
+    const sel = mapDef();
+    h = `<h2>Maps</h2><div class="cards maps">${MAPS.map((x) => { const bt = loadBest(x.id); return `<div class="card map ${x.id === opt.map ? 'on' : ''}" data-map="${x.id}">${mapPic(x)}<div class="mt"><b>${x.name}</b>${bt ? `<em>${fmt(bt)}</em>` : ''}</div></div>`; }).join('')}</div>
+      <div class="desc" style="margin-top:10px"><b style="color:var(--gold)">${sel.name}.</b> ${sel.desc}</div>`;
+  } else if (tab === 'rewards') {
+    const info = loginInfo(), left = msToReset(), hh = Math.floor(left / 3600000), mm = Math.floor((left % 3600000) / 60000);
+    const banner = rewardMsg ? `<div class="rwmsg">${rewardMsg}</div>` : ''; rewardMsg = '';
+    const num2 = (v: number) => String(Math.floor(v * 10) / 10);
+    const row = (def: { text: string; target: number; coins: number; xp: number }, pr: number, c: boolean, key: string) => {
+      const done = pr >= def.target;
+      return `<div class="trow ${c ? 'got' : done ? 'ready' : ''}"><div class="tt"><b>${def.text}</b><div class="tbar"><u style="width:${Math.round(Math.min(1, pr / def.target) * 100)}%"></u></div><small>${num2(Math.min(pr, def.target))} / ${def.target} &middot; <i class="coin"></i> ${def.coins} + ${def.xp} XP</small></div><button class="claim" data-claim="${key}" ${done && !c ? '' : 'disabled'}>${c ? '&#10003;' : 'CLAIM'}</button></div>`;
+    };
+    let page = '';
+    if (rwSub === 'daily') {
+      const days = LOGIN_REWARDS.map((cn, i) => { const st = info.claimed ? (i <= info.idx ? 'done' : '') : (i < info.idx ? 'done' : i === info.idx ? 'today' : ''); return `<div class="day ${st}"><small>Day ${i + 1}</small><b><i class="coin"></i> ${cn}</b>${st === 'done' ? '<span>&#10003;</span>' : ''}</div>`; }).join('');
+      const bonus = `<div class="trow ${profile.daily.bonus ? 'got' : dailyBonusReady() ? 'ready' : ''}"><div class="tt"><b>Finish all three tasks: bonus chest</b><small><i class="coin"></i> 300 + 100 XP</small></div><button class="claim" data-claim="dbonus" ${dailyBonusReady() ? '' : 'disabled'}>${profile.daily.bonus ? '&#10003;' : 'OPEN'}</button></div>`;
+      page = `<h3>Login reward <span class="rs">streak ${info.streak} day${info.streak === 1 ? '' : 's'}</span></h3><div class="days">${days}</div>
+        <button class="go small" data-claim="login" ${info.claimed ? 'disabled' : ''}>${info.claimed ? 'Claimed today &middot; come back tomorrow' : `CLAIM DAY ${info.idx + 1} &middot; <i class="coin"></i> ${info.reward}`}</button>
+        <h3>Today's tasks <span class="rs">new tasks in ${hh} h ${mm} min</span></h3>${dailyList().map((x, i) => row(x.def, x.p, x.c, 'd:' + i)).join('')}${bonus}`;
+    } else {
+      const chips = SETS.map((s) => { const st = setStatus(s.id); return `<button data-setsel="${s.id}" class="${s.id === setSel ? 'on' : ''}">${s.name}<i>${st.rewardTaken ? '&#10003;' : st.claimed + '/' + st.total}</i></button>`; }).join('');
+      const cur = SETS.find((x) => x.id === setSel) ?? SETS[0], stt = setStatus(cur.id);
+      page = `<div class="setchips">${chips}</div>
+        <div class="desc" style="margin:8px 0 2px">Finish every task in the set and claim the set reward. These count your whole career, not just today.</div>
+        ${setList(cur.id).map((x) => row(x.def, x.p, x.c, `s:${cur.id}:${x.def.id}`)).join('')}
+        <div class="trow setreward ${stt.rewardTaken ? 'got' : stt.ready ? 'ready' : ''}"><div class="tt"><b>Set reward: ${cur.reward.text}</b><small>${/coins/.test(cur.reward.text) ? '' : cur.reward.coins + ' coins + '}${cur.reward.xp} XP &middot; ${stt.claimed} / ${stt.total} tasks claimed</small></div><button class="claim" data-claim="sr:${cur.id}" ${stt.ready ? '' : 'disabled'}>${stt.rewardTaken ? '&#10003;' : 'CLAIM SET'}</button></div>`;
+    }
+    h = `<h2>Rewards</h2>${banner}
+      <div class="subbar" id="rwsub"><button data-sub="daily" class="${rwSub === 'daily' ? 'on' : ''}">Daily</button><button data-sub="sets" class="${rwSub === 'sets' ? 'on' : ''}">Challenge sets</button></div>
+      <div class="pbody">${page}</div>`;
   } else if (tab === 'profile') {
     const li = levelInfo(), fav = favouriteBike(), favName = BIKES.find((b) => b.id === fav)?.name ?? 'None yet';
     const n = (v: number, d = 0) => v.toFixed(d), t = profile.playSec, played = t >= 3600 ? `${(t / 3600).toFixed(1)} h` : `${Math.round(t / 60)} min`;
     const box = (v: string, l: string) => `<div><b>${v}</b><small>${l}</small></div>`;
-    h = `<h2>Profile</h2>
-      <div class="who"><input id="pname" maxlength="14" value="${profile.name}" spellcheck="false" /><span>LV ${li.level} &middot; ${titleOf(li.level)}</span></div>
+    const stats = `<div class="who"><input id="pname" maxlength="14" value="${profile.name}" spellcheck="false" /><span>LV ${li.level} &middot; ${titleOf(li.level)}</span></div>
       <div class="xpbar"><u style="width:${Math.round(li.frac * 100)}%"></u></div><div class="foot" style="margin:4px 0 0">${li.into} / ${li.need} XP to level ${li.level + 1}</div>
-      <div class="pgrid">${box(String(profile.races), 'Races')}${box(String(profile.wins), 'Wins')}${box(String(profile.podiums), 'Podiums')}
-        ${box(n(profile.distanceKm, 1) + ' km', 'Distance')}${box(Math.round(profile.topKmh) + ' km/h', 'Top speed')}${box(played, 'Time played')}
-        ${box(String(profile.knockdowns), 'Riders knocked off')}${box(String(profile.fallen), 'Times you fell')}${box(String(profile.wrecks), 'Wrecks')}
-        ${box(String(profile.busted), 'Busted')}${box(String(profile.pedHits), 'People hit')}${box(String(profile.loot), 'Crates')}
-        ${box(profile.coins.toLocaleString(), 'Coins')}${box(`${BIKES.filter((x) => owns(x.id)).length} / ${BIKES.length}`, 'Bikes owned')}${box(String(profile.owned.length), 'Collection')}</div>
-      <h3>Favourite bike</h3><div class="list"><div><span>${favName}</span><em>${fav ? profile.bikeUse[fav] + ' rides' : ''}</em></div></div>
-      <h3>Game type records</h3><div class="list">${[['rush', 'Checkpoint Rush', 'checkpoints'], ['escape', 'Police Escape', 's survived'], ['coins', 'Coin Rush', 'coins'], ['brawl', 'Brawl', 'knock-offs']].map(([k, nm, u]) => `<div><span>${nm}</span><em>${profile.best[k] !== undefined ? profile.best[k] + (u === 's survived' ? ' s' : ' ' + u) : '<span class="dim">-</span>'}</em></div>`).join('')}</div>
-      <h3>Best times</h3><div class="list">${MAPS.map((mp) => { const bt = loadBest(mp.id); return `<div><span>${mp.name}</span><em>${bt ? fmt(bt) : '<span class="dim">-</span>'}${loadBest('trial.' + mp.id) ? ' &middot; trial ' + fmt(loadBest('trial.' + mp.id)) : ''}</em></div>`; }).join('')}</div>
-      <h3>Recent races</h3><div class="list">${profile.history.length ? profile.history.slice(0, 6).map((r) => `<div><span>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${BIKES.find((x) => x.id === r.bike)?.name ?? r.bike}</span><em>${r.dnf ? 'DNF' : `${r.pos}/${r.of} &middot; ${fmt(r.time)}`}${r.diff && r.diff !== 'normal' ? ` &middot; ${r.diff}` : ''}</em></div>`).join('') : '<div class="dim">No races yet</div>'}</div>
+      <div class="pgrid">${box(String(profile.races), 'Races')}${box(String(profile.wins), 'Wins')}${box(String(profile.podiums), 'Podiums')}${box(profile.coins.toLocaleString(), 'Coins')}
+        ${box(n(profile.distanceKm, 1) + ' km', 'Distance')}${box(Math.round(profile.topKmh) + ' km/h', 'Top speed')}${box(played, 'Time played')}${box(`${BIKES.filter((x) => owns(x.id)).length} / ${BIKES.length}`, 'Bikes')}
+        ${box(String(profile.knockdowns), 'Knocked off')}${box(String(profile.fallen), 'You fell')}${box(String(profile.wrecks), 'Wrecks')}${box(String(profile.busted), 'Busted')}
+        ${box(String(profile.pedHits), 'People hit')}${box(String(profile.loot), 'Crates')}</div>`;
+    const records = `<div class="list"><div><span>Favourite bike</span><em>${favName}${fav ? ' &middot; ' + profile.bikeUse[fav] + ' rides' : ''}</em></div>
+      ${[['rush', 'Checkpoint Rush', 'checkpoints'], ['escape', 'Police Escape', 's'], ['coins', 'Coin Rush', 'coins'], ['brawl', 'Brawl', 'knock-offs']].map(([k, nm, u]) => `<div><span>${nm}</span><em>${profile.best[k] !== undefined ? profile.best[k] + (u === 's' ? ' s' : ' ' + u) : '<span class="dim">-</span>'}</em></div>`).join('')}</div>
+      <h3>Best times</h3><div class="list">${MAPS.map((mp) => { const bt = loadBest(mp.id); return `<div><span>${mp.name}</span><em>${bt ? fmt(bt) : '<span class="dim">-</span>'}${loadBest('trial.' + mp.id) ? ' &middot; trial ' + fmt(loadBest('trial.' + mp.id)) : ''}</em></div>`; }).join('')}</div>`;
+    const history = `<div class="list">${profile.history.length ? profile.history.slice(0, 8).map((r) => `<div><span>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${BIKES.find((x) => x.id === r.bike)?.name ?? r.bike}</span><em>${r.dnf ? 'DNF' : `${r.pos}/${r.of} &middot; ${fmt(r.time)}`}${r.diff && r.diff !== 'normal' ? ` &middot; ${r.diff}` : ''}</em></div>`).join('') : '<div class="dim">No races yet</div>'}</div>
       <button class="danger" id="resetp">Reset profile</button>`;
+    h = `<h2>Profile</h2>
+      <div class="subbar" id="prsub">${([['stats', 'Stats'], ['records', 'Records'], ['history', 'Recent races']] as const).map(([id, nm]) => `<button data-sub="${id}" class="${profSub === id ? 'on' : ''}">${nm}</button>`).join('')}</div>
+      <div class="pbody">${profSub === 'stats' ? stats : profSub === 'records' ? records : history}</div>`;
   } else if (tab === 'controls') {
     const k = (...a: string[]) => a.map((x) => `<kbd>${x}</kbd>`).join('');
     h = `<h2>Controls</h2><div class="keys">
@@ -181,11 +214,12 @@ function render() {
       <span>${k('Space')}</span><span>Handbrake (drift)</span><span>${k('Shift')}</span><span>Boost (the bar refills when you let go)</span>
       <span>${k('Q')} ${k('E')}</span><span>Punch with the left / right hand</span><span>${k('F')}</span><span>Kick</span>
       <span>${k('R')}</span><span>Put the bike back on the road</span><span>${k('Esc')}</span><span>Pause</span></div>
-      <h3>Tips</h3><div class="desc">Hit riders beside you, or come up fast behind one, to knock them off. Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over orange arrow pads for speed. Hitting people or crashing makes the police chase you.</div>`;
+      <h3 class="controls-tips">Tips</h3><div class="desc controls-tips">Hit riders beside you, or come up fast behind one, to knock them off. Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over orange arrow pads for speed. Hitting people or crashing makes the police chase you.</div>`;
   } else {
     const v = sound.vol, sl = (k: 'master' | 'music' | 'sfx', n: string) => `<div class="slider"><span>${n}</span><input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-vol="${k}"><span id="v-${k}">${Math.round(v[k] * 100)}%</span></div>`;
     h = `<h2>Settings</h2>${sl('master', 'Master')}${sl('music', 'Music')}${sl('sfx', 'Effects')}<div class="slider"><span>Steering</span><input type="range" min="60" max="160" step="5" value="${Number(opt.steer) || 100}" data-steer><span id="v-steer">${Number(opt.steer) || 100}%</span></div><div class="desc">Steering: higher makes the bike turn sharper. Tip: let go of the gas a little before a corner, and use Space to drift round tight ones. Music changes between the menu and the race. Effects include the engine, which sounds different for each bike.</div>`;
   }
+  clone.className = (tab === 'play' || tab === 'garage' || tab === 'profile' || tab === 'rewards') ? 'fx' : '';   // these pages: a scrolling body (only if the window is very small) and a footer that stays in view
   clone.innerHTML = h; p.replaceWith(clone); clone.id = 'panel'; bind(clone);
 }
 
@@ -195,6 +229,19 @@ function bind(p: HTMLElement) {
     if (s.dataset.k === 'diff') render(); else s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
   }));
   p.querySelectorAll<HTMLElement>('#psub [data-sub]').forEach((b2) => b2.addEventListener('click', () => { playSub = b2.dataset.sub as 'type' | 'rules'; render(); }));
+  p.querySelectorAll<HTMLElement>('#rwsub [data-sub]').forEach((b2) => b2.addEventListener('click', () => { rwSub = b2.dataset.sub as 'daily' | 'sets'; render(); }));
+  p.querySelectorAll<HTMLElement>('[data-setsel]').forEach((b2) => b2.addEventListener('click', () => { setSel = b2.dataset.setsel!; render(); }));
+  p.querySelectorAll<HTMLElement>('[data-claim]').forEach((b2) => b2.addEventListener('click', () => {
+    const k = b2.dataset.claim!; let msg = '';
+    const pay = (x: { coins: number; xp: number } | null, what: string) => { if (x) msg = `${what}: +${x.coins} coins, +${x.xp} XP`; };
+    if (k === 'login') pay(claimLogin(), 'Daily reward claimed');
+    else if (k === 'dbonus') pay(claimDailyBonus(), 'Bonus chest opened');
+    else if (k.startsWith('d:')) pay(claimDaily(Number(k.slice(2))), 'Task reward');
+    else if (k.startsWith('s:')) { const [, sid, tid] = k.split(':'); pay(claimSetTask(sid, tid), 'Task reward'); }
+    else if (k.startsWith('sr:')) { const x = claimSetReward(k.slice(3)); if (x) msg = `SET COMPLETE! You got ${x.text}`; }
+    if (msg) { rewardMsg = msg; sound.loot(); render(); }
+  }));
+  p.querySelectorAll<HTMLElement>('#prsub [data-sub]').forEach((b2) => b2.addEventListener('click', () => { profSub = b2.dataset.sub as 'stats' | 'records' | 'history'; render(); }));
   p.querySelectorAll<HTMLElement>('[data-mode]').forEach((c) => c.addEventListener('click', () => { opt.mode = c.dataset.mode!; save(); render(); }));
   p.querySelectorAll<HTMLElement>('[data-go]').forEach((t) => t.addEventListener('click', () => setTab(t.dataset.go as Tab, true)));
   p.querySelectorAll<HTMLElement>('[data-bike]').forEach((c) => c.addEventListener('click', () => { viewId = c.dataset.bike!; if (owns(viewId)) { opt.bike = viewId; save(); sound.setBike(bikeDef().cc); syncMe(); } render(); hooks.preview(); }));

@@ -20,6 +20,8 @@
 
 - Game types: Time Trial, Checkpoint Rush, Knockout, Police Escape, Brawl, Coin Rush; Play tab sub-tabs; coin icon and coin look
 
+- Rewards (daily login streak, daily tasks, challenge sets), one-screen menu layout
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
 - Kick/ban for hosts, quick-match, chat during the race, shared (synced) traffic if players ask for it

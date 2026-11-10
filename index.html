@@ -109,6 +109,50 @@
   /* sub-tabs inside a page */
   .subbar { display: flex; gap: 6px; margin: 10px 0 12px; } .subbar button { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: #c8d4e4; font: 800 14px Orbitron, system-ui; letter-spacing: .08em; cursor: pointer; text-transform: uppercase; transition: all .12s; } .subbar button:hover { background: rgba(255,255,255,.14); } .subbar button.on { background: var(--gold); color: #111; border-color: var(--gold); }
   .rulesum { font-size: 14px; color: #8fb0d0; margin: -4px 0 8px; font-weight: 600; } .rulesum b { color: #ffd24a; }
+  /* rewards */
+  nav button.has::after { content: ''; position: absolute; right: 22px; top: 50%; width: 11px; height: 11px; margin-top: -5px; border-radius: 50%; background: #ff4d3d; box-shadow: 0 0 0 2px rgba(0,0,0,.45), 0 0 10px #ff4d3d; animation: blink 1.2s infinite; }
+  .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; } .day { position: relative; text-align: center; padding: 6px 2px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.05); } .day small { display: block; font-size: 10px; letter-spacing: .08em; color: #8fb0d0; text-transform: uppercase; } .day b { font: 800 12px Orbitron, system-ui; }
+  .day.done { background: rgba(61,220,132,.12); border-color: rgba(61,220,132,.5); } .day.done span { position: absolute; top: 1px; right: 4px; color: #3ddc84; font-size: 11px; } .day.today { border-color: var(--gold); background: rgba(255,210,74,.16); box-shadow: 0 0 0 1px var(--gold) inset; animation: blink 1.6s infinite; }
+  .rs { float: right; text-transform: none; letter-spacing: 0; color: #9fb2c8; font-weight: 600; font-size: 12px; }
+  .trow { display: flex; align-items: center; gap: 10px; padding: 7px 10px; margin: 6px 0; border-radius: 9px; background: rgba(255,255,255,.05); border: 1px solid var(--line); } .trow .tt { flex: 1; min-width: 0; } .trow b { font-size: 14px; display: block; } .trow small { color: #8fb0d0; font-size: 12px; font-weight: 600; }
+  .trow.ready { border-color: var(--gold); background: rgba(255,210,74,.1); } .trow.got { opacity: .55; }
+  .tbar { height: 5px; margin: 4px 0 3px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; } .tbar u { display: block; height: 100%; background: linear-gradient(90deg, #2a8cff, #4cf0ff); text-decoration: none; } .trow.ready .tbar u { background: linear-gradient(90deg, var(--gold), #ff9d2e); }
+  .claim { flex: none; min-width: 82px; padding: 8px 10px; border-radius: 8px; border: 0; background: var(--gold); color: #111; font: 800 13px Orbitron, system-ui; letter-spacing: .06em; cursor: pointer; } .claim:hover:not(:disabled) { filter: brightness(1.1); } .claim:disabled { background: rgba(255,255,255,.1); color: #7f90a6; cursor: default; }
+  .setchips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; } .setchips button { padding: 7px 4px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: #cfd9e6; font: 800 11px Orbitron, system-ui; cursor: pointer; } .setchips button i { display: block; font: 700 12px Rajdhani; font-style: normal; color: #8fb0d0; } .setchips button.on { background: var(--gold); color: #111; border-color: var(--gold); } .setchips button.on i { color: #333; }
+  .rwmsg { margin: 4px 0 6px; padding: 7px 12px; border-radius: 8px; background: rgba(61,220,132,.16); border: 1px solid rgba(61,220,132,.6); color: #b8ffd6; font-weight: 700; font-size: 15px; text-align: center; animation: pin .3s ease-out; }
+  /* last fixes so every page fits a small window */
+  .left { height: 100%; overflow: hidden; } .body { flex: 1 1 0; min-height: 0; } #panel { max-height: 100%; min-height: 0; }
+  @media (max-height: 640px) {
+    #panel h3 { margin: 6px 0 2px; font-size: 11px; } .keys { grid-template-columns: auto 1fr auto 1fr; gap: 3px 10px; font-size: 14px; } #tab-controls .desc, .controls-tips { display: none; } .list div { padding: 3px 0; } .statgrid .stat { margin: 1px 0; font-size: 12px; } .desc { margin: 2px 0 !important; } .trow { padding: 4px 8px; margin: 4px 0; } .trow b { font-size: 13px; } .days .day { padding: 3px 1px; }
+  }
+  /* everything on one screen: pages with a footer, denser grids, and smaller headings on short windows */
+  #panel.fx { display: flex; flex-direction: column; overflow: hidden; } #panel .pbody { flex: 1; min-height: 0; overflow-y: auto; } #panel .pfoot { flex: none; padding-top: 6px; } #panel .pfoot .go { margin-top: 4px; }
+  .cards.modes { grid-template-columns: repeat(4, 1fr); gap: 6px; } .cards.modes .card { padding: 7px 8px; } .cards.modes .card b { font-size: 11.5px; letter-spacing: 0; } .cards.modes .card small { font-size: 10.5px; line-height: 1.2; margin-top: 1px; }
+  .mini.slim { gap: 8px; margin-bottom: 4px; } .mini.slim .tile { padding: 5px 10px; } .mini.slim .tile b { font-size: 14px; } .mini.slim .tile span { display: none; }
+  .cards.bikes { grid-template-columns: repeat(4, 1fr); gap: 6px; } .cards.bikes .card { padding: 6px 8px; } .cards.bikes .card b { font-size: 12px; letter-spacing: 0; display: block; } .cards.bikes .card em { float: none; display: block; font-size: 11px; margin-top: 1px; }
+  .statgrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; } .statgrid .stat { margin: 3px 0; }
+  .row .swatches { gap: 6px; } .row .sw { width: 24px; height: 24px; }
+  .cards.maps { grid-template-columns: repeat(3, 1fr); gap: 7px; } .cards.maps .map svg { height: 52px; } .cards.maps .map .mt { padding: 5px 8px 6px; } .cards.maps .map b { font-size: 12px; } .cards.maps .map em { font-size: 11px; }
+  .pgrid { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; } .pgrid div { padding: 6px 8px; } .pgrid b { font-size: 14px; } .pgrid small { font-size: 10px; letter-spacing: .05em; }
+  @media (max-height: 800px) {
+    .left { padding-top: 16px; padding-bottom: 12px; } .logo { margin-bottom: 8px; } .logo b { font-size: 46px; } .logo i { margin-top: 4px; font-size: 12px; } .logo .bar { margin-top: 6px; height: 3px; }
+    nav { gap: 6px; } nav button { padding: 9px 16px; font-size: 16px; } nav small { display: none; }
+    #panel { padding: 14px 18px; } #panel h2 { font-size: 17px; margin-bottom: 6px; } #panel h3 { margin: 10px 0 4px; } .row { margin: 6px 0; font-size: 15px; } .subbar { margin: 6px 0 8px; } .subbar button { padding: 6px 10px; }
+    .go { padding: 12px; font-size: 17px; margin-top: 8px; } .best { margin-top: 4px; font-size: 13px; } .cards.maps .map svg { height: 44px; }
+  }
+  @media (max-height: 640px) {
+    .logo b { font-size: 34px; } .logo i, .logo .bar { display: none; } .logo { margin-bottom: 6px; } .left { padding-top: 10px; padding-bottom: 8px; }
+    nav { gap: 4px; width: 160px; } nav button { padding: 7px 14px; font-size: 14px; } #panel { padding: 10px 14px; }
+    .foot { display: none; } .seg button { padding: 4px 10px; font-size: 13px; } .row { margin: 4px 0; font-size: 14px; } .go { padding: 9px; font-size: 15px; margin-top: 4px; } .desc { font-size: 13px; }
+    .cards.modes .card small { display: none; } .cards.modes .card { padding: 6px 7px; } .mini.slim .tile { padding: 3px 8px; } .cards.maps .map svg { height: 34px; } .stat { margin: 2px 0; } #chip { display: none; }
+  }
+  @media (max-height: 700px) {
+    .trow { padding: 5px 9px; margin: 4px 0; } .trow b { font-size: 13px; } .trow small { font-size: 11px; } .tbar { margin: 2px 0; height: 4px; } .day { padding: 3px 1px; } .day b { font-size: 11px; }
+    .go.small { padding: 8px; font-size: 14px; margin-top: 6px; } .claim { padding: 6px 8px; font-size: 12px; min-width: 70px; } .subbar { margin: 4px 0 6px; } #panel h3 { margin: 6px 0 3px; }
+  }
+  @media (max-height: 560px) {
+    .tbar { display: none; } .trow { padding: 3px 8px; margin: 3px 0; } #panel .pbody h3 { display: none; } .logo b { font-size: 28px; } nav button { padding: 5px 12px; font-size: 13px; } nav { gap: 3px; } .keys { font-size: 13px; gap: 2px 10px; } #panel h2 { font-size: 15px; margin-bottom: 4px; } .stat { font-size: 11px; } .setchips button { padding: 4px 2px; } .setchips button i { display: none; } .pgrid div { padding: 4px 6px; } .desc { font-size: 12px; }
+  }
   .foot { margin-top: 10px; font-size: 13px; color: #6f8099; letter-spacing: .06em; }
   #sndhint { position: fixed; right: 22px; bottom: 16px; z-index: 11; font-size: 14px; color: #ffd24a; letter-spacing: .1em; text-transform: uppercase; animation: blink 1.4s infinite; pointer-events: none; } @keyframes blink { 50% { opacity: .35; } }
 

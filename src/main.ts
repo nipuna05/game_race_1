@@ -4,7 +4,7 @@ import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Sound } from './audio';
-import { profile, recordRace, recordRun, grant, recordBest, owns, type RunStats } from './profile';
+import { profile, recordRace, recordRun, grant, recordBest, owns, bump, setTaskListener, type RunStats } from './profile';
 import { net } from './net';
 import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
@@ -145,7 +145,7 @@ class Game {
   guideChev: THREE.InstancedMesh | null = null; guidePos: { x: number; z: number; q: THREE.Quaternion }[] = [];
   loots: Loot[] = []; pads: Pad[] = []; aiCd = new Map<Rider, number>();
   lives = 3; maxLives = 3; D: Diff = DIFFS.normal; fallTimes: number[] = [];
-  rivalN = 0; modeT = 0; modeScore = 0; elimT = 30; eliminated = new Set<Rider>(); modeDone = false;
+  bumpT = 0; rivalN = 0; modeT = 0; modeScore = 0; elimT = 30; eliminated = new Set<Rider>(); modeDone = false;
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
   mp: MpCfg | null = null; rand: () => number = Math.random; sendAcc = 0; hitAt = new Map<number, number>();
   st: RunStats = { dist: 0, top: 0, ko: 0, fell: 0, wrecks: 0, busted: 0, ped: 0, loot: 0, coins: 0, sec: 0 }; committed = false; resultDone = false;
@@ -215,7 +215,7 @@ class Game {
       b.turbo = s.pw & 1 ? 1 : 0; b.shield = s.pw & 2 ? 1 : 0; b.power = s.pw & 4 ? 1 : 0; r.passed = s.p;
       if (s.sw && s.sw !== r.lastSw) b.swing(s.sw <= 2 ? 'punch' : 'kick', s.sw === 1 || s.sw === 3 ? 1 : -1);
       r.lastSw = s.sw;
-      if (!wasFall && b.fall > 0 && this.t - (this.hitAt.get(r.netId!) ?? -9) < 1.2) { this.st.ko++; toast(`${r.name} is down!`, 1200, '#8affb0'); sound.fall(); }
+      if (!wasFall && b.fall > 0 && this.t - (this.hitAt.get(r.netId!) ?? -9) < 1.2) { this.st.ko++; bump('ko', 1); toast(`${r.name} is down!`, 1200, '#8affb0'); sound.fall(); }
     }
     b.inv = 0; b.syncMesh(dt);
     const lab = b.mesh.root.children[b.mesh.root.children.length - 1]; if (lab instanceof THREE.Sprite) lab.visible = Math.hypot(b.x - this.player.bike.x, b.z - this.player.bike.z) < 90;
@@ -289,6 +289,7 @@ class Game {
     this.t += dt;
     const me = this.player.bike;
     this.st.dist += Math.abs(me.speed) * dt; this.st.top = Math.max(this.st.top, Math.abs(me.speed) * 3.6); this.st.sec += dt;
+    this.bumpT += dt; if (this.bumpT > 0.6) { this.bumpT = 0; bump('speed', this.st.top); }
     if (this.phase === 'count') {
       this.countT -= dt; const n = Math.ceil(this.countT);
       if (n !== this.lastBeep && n > 0) { this.lastBeep = n; toast(String(n), 900, '#ffd24a'); sound.beep(false); }
@@ -469,7 +470,7 @@ class Game {
     }
     const res = t.hit(mag, clamp(shove, -1, 1) * (how === 'kick' ? 1.6 : 1));
     if (how === 'rear') f.speed *= 0.92;
-    if (from.isPlayer && res === 'fell') this.st.ko++;
+    if (from.isPlayer && res === 'fell') { this.st.ko++; bump('ko', 1); }
     if (res === 'fell') from.ko = (from.ko ?? 0) + 1;
     if (to.isPlayer && res === 'fell') this.playerFell();
     if (res === 'ignored') { if (from.isPlayer || to.isPlayer) toast(to.bike.shield > 0 ? 'Shield blocked it!' : '', 600, '#8affb0'); return; }
@@ -593,7 +594,7 @@ class Game {
   collectCoins() {
     const b = this.player.bike; let got = 0;
     for (const c of this.coinPos) if (!c.got && Math.abs(c.x - b.x) < 2.4 && Math.abs(c.z - b.z) < 2.4) { c.got = true; got++; }
-    if (got) { this.st.coins += got * 5; sound.coin(); }
+    if (got) { this.st.coins += got * 5; sound.coin(); bump('coins', got); }
   }
 
   pickups(r: Rider) {
@@ -602,7 +603,7 @@ class Game {
       const l = this.loots[li];
       if (l.cd > 0) continue;
       if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
-        b.grant(l.type); l.cd = 14; l.mesh.visible = false; if (r.isPlayer) { this.st.loot++; if (this.mp) net.loot(li); }
+        b.grant(l.type); l.cd = 14; l.mesh.visible = false; if (r.isPlayer) { this.st.loot++; bump('crates', 1); if (this.mp) net.loot(li); }
         if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.loot(); }
       }
     }
@@ -619,7 +620,7 @@ class Game {
     return false;
   }
   /** Adds this ride's stats to the profile (once). */
-  commit() { if (this.committed) return; this.committed = true; if (this.st.sec > 3) recordRun(this.st, opt.bike, this.D.reward); }
+  commit() { if (this.committed) return; this.committed = true; if (this.st.sec > 3) { recordRun(this.st, opt.bike, this.D.reward); bump('dist', this.st.dist / 1000); } }
 
   /** The bike is wrecked: freeze the game and offer to respawn (while you have respawns left), retry or leave. */
   wreck(reason: string) {
@@ -654,6 +655,7 @@ class Game {
     this.phase = 'done'; this.player.finishedAt = this.raceT;
     if (this.mode === 'trial') { this.finishTrial(); return; }
     const rk = this.rank(); const t = this.raceT;
+    bump('finish', 1); if (rk === 1 && this.riders.length > 1) bump('win', 1);
     const best = loadBest(); let note = '';
     if (!best || t < best) { saveBest(t); note = '  New best!'; }
     if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false, diff: this.mp ? undefined : opt.diff }, this.D.reward); note += `  +${rr.xp} XP  +${rr.coins} coins${rr.levelUp ? '  LEVEL UP!' : ''}`; }
@@ -774,7 +776,7 @@ class Game {
     const t = this.raceT, par = this.parTimes(), medal = t <= par.gold ? 'GOLD' : t <= par.silver ? 'SILVER' : t <= par.bronze ? 'BRONZE' : '';
     const key = 'trial.' + opt.map, best = loadBest(key), isBest = !best || t < best; if (isBest) saveBest(t, key);
     let coins = medal === 'GOLD' ? 300 : medal === 'SILVER' ? 200 : medal === 'BRONZE' ? 120 : 60, xp = medal ? 100 : 30;
-    coins = Math.round(coins * this.D.reward); xp = Math.round(xp * this.D.reward); const g = grant(coins, xp); this.modeDone = true;
+    coins = Math.round(coins * this.D.reward); xp = Math.round(xp * this.D.reward); const g = grant(coins, xp); this.modeDone = true; bump('finish', 1); bump('trial', 1);
     this.showResult(medal ? `${medal} MEDAL` : 'FINISHED', [['Your time', fmt(t)], ['Gold', fmt(par.gold)], ['Silver', fmt(par.silver)], ['Bronze', fmt(par.bronze)], ['Your best', fmt(isBest ? t : best) + (isBest ? '  NEW!' : '')]], `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
   }
   /** The end of Rush, Escape, Coin Rush, Brawl and Knockout: work out the rewards and show the result card. */
@@ -792,6 +794,7 @@ class Game {
     else if (m === 'knockout') { const n = this.modeScore; coins = win ? 450 : n * 60; xp = win ? 200 : n * 25; rows.push(['Riders beaten', String(n)], ['Riders at the start', String(this.riders.length)]); title = win ? 'LAST RIDER STANDING!' : 'ELIMINATED'; }
     coins = Math.round(coins * this.D.reward); xp = Math.round(xp * this.D.reward);
     const g = grant(coins, xp);
+    bump('finish', 1); if (win) bump('win', 1); if (m === 'rush') bump('rush', this.modeScore); if (m === 'escape' && win) bump('escape', 1);
     this.showResult(title, rows, `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
   }
 
@@ -924,6 +927,8 @@ net.h.results = (list: ResultRow[]) => {
 };
 $('res-back').addEventListener('click', () => { const was = game?.mp; $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab(was ? 'online' : 'play', true); });
 $('res-again').addEventListener('click', () => { $('results').classList.remove('on'); startGame(); });
+setTaskListener((text) => toast(`Task complete: ${text}. Claim it in Rewards!`, 2800, '#3ddc84'));
+(window as any).__bump = bump;
 (window as any).__ui = () => ui;
 enterHome();
 preloadModels();

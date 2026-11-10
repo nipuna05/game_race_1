@@ -94,6 +94,18 @@ A very hard hit (a building or car at full speed, or a police ram), or being kno
 
 Crates on the roads (N nitro, S super speed, D shield, P power hits) and orange arrow pads that give a speed burst. Crates come back after 14 seconds.
 
+## Rewards
+
+The REWARDS tab (a red dot on its button means something is ready to claim):
+
+- **Daily login reward:** a 7-day streak, 50, 75, 100, 150, 200, 300 and 500 coins (day 7 also gives 100 XP). Miss a day and it starts again at day 1.
+- **Daily tasks:** three new tasks every day (finish games, win, knock off riders, collect coins, grab crates, ride kilometres, reach a speed, a Time Trial, Checkpoint Rush, escape the police). Claim each one for coins and XP; claim all three to open the bonus chest (300 coins and 100 XP).
+- **Challenge sets:** four sets of tasks that count your whole career (Rookie Rider, Street Racer, City Outlaw, Legend). Finish every task in a set for the set reward: coins, and the Enduro or the Cafe Racer bike.
+
+## One screen
+
+Every menu page fits on one screen without scrolling, down to about 900 x 520: denser grids on the Play, Garage and Maps pages, sub-tabs on Play, Profile and Rewards, and the Start / Buy button stays at the bottom of the page.
+
 ## Game types
 
 Pick one on the PLAY tab, GAME TYPE page (the RULES page has difficulty, police, traffic, laps and rivals). Single player; online races are normal races:

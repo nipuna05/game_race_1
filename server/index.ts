@@ -2,14 +2,14 @@
  *  Each player's page simulates its own bike; the server keeps the room, the start time, the shared random seed and the results. */
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, MP_MODES, BRAWL_SECONDS, KNOCKOUT_FIRST, KNOCKOUT_EVERY, type C2S, type S2C, type PlayerInfo, type Settings, type ResultRow, type RoomInfo } from '../shared/protocol';
+import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, MP_MODES, BRAWL_SECONDS, KNOCKOUT_FIRST, KNOCKOUT_EVERY, COINS_SECONDS, RUSH_CAP, type C2S, type S2C, type PlayerInfo, type Settings, type ResultRow, type RoomInfo } from '../shared/protocol';
 
 const PORT = Number(process.env.PORT) || 8090;
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);   // empty = any origin (fine on a home network)
 const MAX_ROOMS = 40, MAX_PER_IP = 16;   // per address: a full room of 12 from one office or home network, plus a few spare
 
 interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number; lastChat: number; cid: string; ip: string; ko: number; out: boolean; prog: number; lastKo: number }
-interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null; banned: Set<string>; outOrder: number[] }
+interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null; banned: Set<string>; outOrder: number[]; taken: Set<number> }
 const rooms = new Map<string, Room>();
 const rooms_ = () => rooms;
 const where = new WeakMap<WebSocket, { room: Room; me: Player }>();
@@ -33,7 +33,7 @@ function results(r: Room) {
   if (r.status !== 'racing') return;
   if (r.finTimer) { clearTimeout(r.finTimer); r.finTimer = null; }
   const ps = [...r.players.values()], mode = r.settings.mode; let rows: ResultRow[];
-  if (mode === 'brawl') rows = ps.map((p) => ({ id: p.id, name: p.name, time: null, score: p.ko })).sort((a, b) => b.score - a.score);   // most knock-offs first
+  if (mode === 'brawl' || mode === 'coins' || mode === 'rush') rows = ps.map((p) => ({ id: p.id, name: p.name, time: null, score: p.ko })).sort((a, b) => b.score - a.score);   // most knock-offs, coins or checkpoints first
   else if (mode === 'knockout') {                                // the last rider standing first, then the others from the last one out to the first
     const beaten = (p: Player) => (p.out ? r.outOrder.indexOf(p.id) : r.outOrder.length);
     rows = ps.map((p) => ({ id: p.id, name: p.name, time: null, score: beaten(p) })).sort((a, b) => b.score - a.score);
@@ -50,7 +50,7 @@ function knockOut(r: Room) {
   if (alive.length - 1 <= 1) results(r); else r.finTimer = setTimeout(() => knockOut(r), KNOCKOUT_EVERY * 1000);
 }
 /** Is the game over now that someone left? A race when everyone left has finished; Brawl and Knockout when fewer than two are still playing. */
-const over = (r: Room) => { const ps = [...r.players.values()]; return r.settings.mode === 'race' ? ps.every((p) => p.fin !== null) : ps.filter((p) => !p.out).length < 2; };
+const over = (r: Room) => { const ps = [...r.players.values()]; return r.settings.mode === 'race' || r.settings.mode === 'rush' ? ps.every((p) => p.fin !== null) : ps.filter((p) => !p.out).length < 2; };
 function leave(ws: WebSocket) {
   const w = where.get(ws); if (!w) return; where.delete(ws);
   const { room: r, me } = w; r.players.delete(me.id);
@@ -86,20 +86,23 @@ wss.on('connection', (ws, req) => {
     if (!m || typeof m.t !== 'string') return;
     const w = where.get(ws);
 
-    if (m.t === 'create' || m.t === 'join') {
+    if (m.t === 'create' || m.t === 'join' || m.t === 'quick') {
       if (w) return;
       if (m.ver !== PROTOCOL_VERSION) { send(ws, { t: 'err', msg: 'This version of the game is out of date. Reload the page.' }); return; }
       let r: Room | undefined;
-      if (m.t === 'create') {
+      const banKey = cleanCid(m.cid) || 'ip:' + ip;
+      if (m.t === 'quick') r = [...rooms.values()].filter((x) => x.pub && x.status === 'lobby' && x.players.size < MAX_PLAYERS && !x.banned.has(banKey)).sort((a, b) => b.players.size - a.players.size)[0];   // the fullest open room
+      if (m.t === 'create' || (m.t === 'quick' && !r)) {
         if (rooms.size >= MAX_ROOMS) { send(ws, { t: 'err', msg: 'The server is full. Try again later.' }); return; }
-        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2, police: true, traffic: 1, mode: 'race' }, seed: 1, finTimer: null, banned: new Set(), outOrder: [] }; rooms.set(r.code, r);
-      } else {
+        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.t === 'create' ? m.pub !== false : true, settings: { map: 'downtown', laps: 2, police: true, traffic: 1, mode: 'race' }, seed: 1, finTimer: null, banned: new Set(), outOrder: [], taken: new Set() }; rooms.set(r.code, r);
+      } else if (m.t === 'join') {
         r = rooms.get(String(m.code).toUpperCase().trim());
         if (!r) { send(ws, { t: 'err', msg: 'No room with that code.' }); return; }
         if (r.status !== 'lobby') { send(ws, { t: 'err', msg: 'A race is in progress. Try again when it ends.' }); return; }
-        if (r.banned.has(cleanCid(m.cid) || 'ip:' + ip)) { send(ws, { t: 'err', msg: 'The host banned you from this room.' }); return; }
+        if (r.banned.has(banKey)) { send(ws, { t: 'err', msg: 'The host banned you from this room.' }); return; }
         if (r.players.size >= MAX_PLAYERS) { send(ws, { t: 'err', msg: 'The room is full.' }); return; }
       }
+      if (!r) return;
       const me: Player = { id: nextId++, ws, name: clean(m.name), bike: cleanBike(m.bike), color: cleanColor(m.color), fin: null, msgs: 0, lastChat: 0, cid: cleanCid(m.cid), ip, ko: 0, out: false, prog: 0, lastKo: 0 };
       r.players.set(me.id, me); if (!r.host) r.host = me.id; where.set(ws, { room: r, me }); snapshot(r); return;
     }
@@ -129,15 +132,18 @@ wss.on('connection', (ws, req) => {
       if (r.host !== me.id || r.status !== 'lobby') return;
       const mode = r.settings.mode;
       if (mode !== 'race' && r.players.size < 2) { send(ws, { t: 'err', msg: 'Brawl and Knockout need at least two players.' }); return; }
-      r.status = 'racing'; r.seed = (Math.random() * 2 ** 31) | 0; r.outOrder = []; for (const p of r.players.values()) { p.fin = null; p.ko = 0; p.out = false; p.prog = 0; }
+      r.status = 'racing'; r.seed = (Math.random() * 2 ** 31) | 0; r.outOrder = []; r.taken = new Set(); for (const p of r.players.values()) { p.fin = null; p.ko = 0; p.out = false; p.prog = 0; }
       broadcast(r, { t: 'start', inMs: 4500, seed: r.seed, settings: r.settings, players: list(r) }); snapshot(r);
       if (r.finTimer) clearTimeout(r.finTimer); r.finTimer = null;      // the server keeps the clock of the timed game types
       if (mode === 'brawl') r.finTimer = setTimeout(() => results(r), 4500 + BRAWL_SECONDS * 1000);
       else if (mode === 'knockout') r.finTimer = setTimeout(() => knockOut(r), 4500 + KNOCKOUT_FIRST * 1000);
+      else if (mode === 'coins') r.finTimer = setTimeout(() => results(r), 4500 + COINS_SECONDS * 1000);
+      else if (mode === 'rush') r.finTimer = setTimeout(() => results(r), 4500 + RUSH_CAP * 1000);
     }
     else if (m.t === 's') {
       if (r.status !== 'racing') return;
       me.prog = num(m.pr, 1e7);
+      if (r.settings.mode === 'rush' && me.fin === null) me.ko = Math.max(0, num(m.p, 999) | 0);   // Checkpoint Rush: the score is the checkpoints passed
       broadcast(r, { t: 's', id: me.id, pr: me.prog, x: num(m.x), z: num(m.z), h: num(m.h, 100), v: num(m.v, 200), l: num(m.l, 200), st: num(m.st, 2), ln: num(m.ln, 3), f: m.f ? 1 : 0, fd: m.fd < 0 ? -1 : 1, pw: num(m.pw, 15) | 0, p: Math.max(0, num(m.p, 999) | 0), sw: num(m.sw, 4) | 0 }, me.id);
     }
     else if (m.t === 'hit') {
@@ -147,6 +153,14 @@ wss.on('connection', (ws, req) => {
     else if (m.t === 'ko') {   // the rider who fell says who did it; at most one every 1.5 s
       const by = r.players.get(m.by), now = Date.now(); if (r.status !== 'racing' || !by || by === me || now - me.lastKo < 1500) return;
       me.lastKo = now; by.ko++; broadcast(r, { t: 'ko', by: by.id, to: me.id });
+    }
+    else if (m.t === 'coin') {   // Coin Rush: the first player to reach a coin gets it
+      const i = num(m.i, 5000) | 0; if (r.status !== 'racing' || r.settings.mode !== 'coins' || i < 0 || r.taken.has(i)) return;
+      r.taken.add(i); me.ko++; broadcast(r, { t: 'coin', id: me.id, i });
+    }
+    else if (m.t === 'done') {   // Checkpoint Rush: this rider's clock ran out; the game ends when everyone's has
+      if (r.status !== 'racing' || r.settings.mode !== 'rush' || me.fin !== null) return;
+      me.fin = 1; broadcast(r, { t: 'out', id: me.id }); if (over(r)) results(r);
     }
     else if (m.t === 'loot') { if (r.status === 'racing') broadcast(r, { t: 'loot', id: me.id, i: Math.max(0, num(m.i, 999) | 0) }, me.id); }
     else if (m.t === 'fin') {

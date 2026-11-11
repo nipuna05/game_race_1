@@ -1,10 +1,10 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const MAX_PLAYERS = 12;
 export const BIKE_IDS = ['scooter', 'vespa', 'chopper', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 /** The game types a room can play online. */
-export const MP_MODES = ['race', 'brawl', 'knockout'];
-export const BRAWL_SECONDS = 90, KNOCKOUT_FIRST = 30, KNOCKOUT_EVERY = 25;
+export const MP_MODES = ['race', 'brawl', 'knockout', 'coins', 'rush'];
+export const BRAWL_SECONDS = 90, KNOCKOUT_FIRST = 30, KNOCKOUT_EVERY = 25, COINS_SECONDS = 100, RUSH_START = 40, RUSH_CAP = 300;   // RUSH_CAP: a Checkpoint Rush is ended after this long, whoever is still riding
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
 
 export interface PlayerInfo { id: number; name: string; bike: string; color: string }
@@ -26,6 +26,7 @@ export interface RiderState {
 
 export type C2S =
   | { t: 'create'; ver: number; name: string; bike: string; color: string; pub?: boolean; cid?: string }   // cid: a random id kept by the browser, so a ban holds when the player rejoins
+  | { t: 'quick'; ver: number; name: string; bike: string; color: string; cid?: string }   // quick match: join the fullest open room, or create a public one
   | { t: 'join'; ver: number; code: string; name: string; bike: string; color: string; cid?: string }
   | { t: 'me'; name: string; bike: string; color: string }
   | { t: 'settings'; map: string; laps: number; pub?: boolean; police?: boolean; traffic?: number; mode?: string }
@@ -36,11 +37,13 @@ export type C2S =
   | ({ t: 's' } & RiderState)
   | { t: 'hit'; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }
   | { t: 'loot'; i: number }
+  | { t: 'coin'; i: number }                    // Coin Rush: I rode over this coin (the first to say so gets it)
+  | { t: 'done' }                               // Checkpoint Rush: my clock ran out
   | { t: 'ko'; by: number }                     // I was knocked off my bike by this player (the one who fell reports it)
   | { t: 'fin'; time: number }
   | { t: 'leave' };
 
-export interface ResultRow { id: number; name: string; time: number | null; score?: number }   // score: knock-offs (Brawl) or riders outlasted (Knockout)
+export interface ResultRow { id: number; name: string; time: number | null; score?: number }   // score: knock-offs (Brawl), riders outlasted (Knockout), coins (Coin Rush) or checkpoints (Checkpoint Rush)
 
 export type S2C =
   | { t: 'room'; code: string; you: number; host: number; players: PlayerInfo[]; settings: Settings; status: 'lobby' | 'racing'; pub: boolean }
@@ -51,7 +54,8 @@ export type S2C =
   | { t: 'hit'; from: number; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }
   | { t: 'loot'; id: number; i: number }
   | { t: 'ko'; by: number; to: number }         // a knock-off, counted by the server
-  | { t: 'out'; id: number }                    // Knockout: this rider is out
+  | { t: 'out'; id: number }                    // Knockout: this rider is out; Checkpoint Rush: this rider's clock ran out
+  | { t: 'coin'; id: number; i: number }        // Coin Rush: this player got this coin
   | { t: 'fin'; id: number; time: number }
   | { t: 'results'; list: ResultRow[]; mode: string }
   | { t: 'left'; id: number }

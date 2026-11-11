@@ -27,7 +27,8 @@ export const MODES: { id: string; name: string; short: string; desc: string; lap
   { id: 'free', name: 'Free ride', short: 'Just explore', desc: 'Ride wherever you like. No rules, no clock.' },
 ];
 /** The game types a room can play online: id, name, what it is. */
-const MP_TYPES: [string, string, string][] = [['race', 'Race', 'First over the line after the laps wins'], ['brawl', 'Brawl', '90 seconds: the most knock-offs wins'], ['knockout', 'Knockout', 'Every 25 seconds the last rider is out']];
+const MP_TYPES: [string, string, string, string?][] = [['coins', 'Coin Rush', '100 seconds: collect the most coins (each coin goes to whoever reaches it first)', 'Coins'], ['rush', 'Checkpoint Rush', 'Start with 40 seconds, every checkpoint adds 7: the most checkpoints wins', 'Rush'], ['race', 'Race', 'First over the line after the laps wins'], ['brawl', 'Brawl', '90 seconds: the most knock-offs wins'], ['knockout', 'Knockout', 'Every 25 seconds the last rider is out']];
+MP_TYPES.push(...MP_TYPES.splice(0, 2));   // Race, Brawl, Knockout first
 const mpType = (id: string) => MP_TYPES.find((x) => x[0] === id) ?? MP_TYPES[0];
 export const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
 if (!owns(opt.bike)) opt.bike = 'street';
@@ -129,7 +130,7 @@ function render() {
         <h3>Open rooms <button class="mini" id="refresh">Refresh</button></h3>
         <div class="plist">${rl.length ? rl.map((r) => `<div class="pl"><span>${clean(r.host)}'s room <small>${MAPS.find((x) => x.id === r.map)?.name ?? r.map} &middot; ${r.laps} lap${r.laps > 1 ? 's' : ''} &middot; ${r.players}/12</small></span><button class="go small" data-room="${r.code}" style="width:90px;margin:0;padding:7px">JOIN</button></div>`).join('') : `<div class="desc">${net.status === 'on' ? 'No open rooms right now. Create one!' : net.status === 'connecting' ? (net.waking ? 'Waking up the server... free servers sleep when nobody plays, this can take up to a minute.' : 'Connecting...') : 'Not connected to the server.'}</div>`}</div>
         <h3>Join with a code</h3><div class="joinrow"><input id="code" class="txt" maxlength="4" placeholder="CODE" spellcheck="false" /><button class="go" id="joinbtn">JOIN</button></div>
-        <button class="go" id="createbtn" style="margin-top:14px">CREATE A ROOM</button>
+        <div style="display:flex;gap:10px;margin-top:14px"><button class="go" id="quickbtn" style="margin:0" title="Join the fullest open room, or start a public one if there is none">QUICK MATCH</button><button class="go" id="createbtn" style="margin:0">CREATE A ROOM</button></div>
         <label class="chk"><input type="checkbox" id="pubchk" ${opt.pub === '0' ? '' : 'checked'} /> Public: list my room for everyone</label>
         ${net.error ? `<div class="err">${net.error}</div>` : ''}
         <h3>Server</h3><input id="srv" class="txt" value="${net.url || defaultServer()}" spellcheck="false" />
@@ -140,7 +141,7 @@ function render() {
         <div class="desc">${L.pub ? 'Public room' : 'Private room: share the code'} &middot; ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
         <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}${host && p.id !== L.you ? `<button class="kb" data-kick="${p.id}" title="Remove this player from the room">Kick</button><button class="kb ban" data-ban="${p.id}" title="Remove this player and stop them rejoining">Ban</button>` : ''}</small></div>`).join('')}</div>
         ${host ? `<h3>Race settings</h3>
-          <div class="row"><span>Game type</span><div class="seg" id="mpmode">${MP_TYPES.map(([v, nm, d]) => `<button data-v="${v}" title="${d}" class="${st.mode === v ? 'on' : ''}">${nm}</button>`).join('')}</div></div>
+          <div class="row"><span>Game type</span><div class="seg" id="mpmode">${MP_TYPES.map(([v, nm, d, sh]) => `<button data-v="${v}" title="${nm}: ${d}" class="${st.mode === v ? 'on' : ''}">${sh ?? nm}</button>`).join('')}</div></div>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
           ${st.mode === 'race' ? `<div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : `<div class="row"><span>Rules</span><small style="color:#8fb0d0;font-weight:600">${mpType(st.mode)[2]}${L.players.length < 2 ? ' &middot; needs 2 players' : ''}</small></div>`}
           <div class="row"><span>Police</span><div class="seg" id="mppol"><button data-v="1" class="${st.police ? 'on' : ''}">On</button><button data-v="0" class="${st.police ? '' : 'on'}">Off</button></div></div>
@@ -258,6 +259,7 @@ function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLInputElement>('[data-vol="sfx"]').forEach((r) => r.addEventListener('change', () => sound.thump(6)));
   $('go')?.addEventListener('click', () => hooks.start());
   const connectThen = (act: () => void) => { const u = (p.querySelector<HTMLInputElement>('#srv')?.value || net.url || defaultServer()).trim(); net.ensure(u).then(act).catch(() => { /* the error is shown in the panel */ }); };
+  p.querySelector('#quickbtn')?.addEventListener('click', () => connectThen(() => net.quick(profile.name, opt.bike, opt.color)));
   p.querySelector('#createbtn')?.addEventListener('click', () => { const pub = p.querySelector<HTMLInputElement>('#pubchk')?.checked !== false; opt.pub = pub ? '1' : '0'; save(); connectThen(() => net.create(profile.name, opt.bike, opt.color, pub)); });
   p.querySelectorAll<HTMLElement>('[data-room]').forEach((b) => b.addEventListener('click', () => connectThen(() => net.join(b.dataset.room!, profile.name, opt.bike, opt.color))));
   p.querySelector('#refresh')?.addEventListener('click', () => { net.ensure(net.url || defaultServer()).then(() => net.list()).catch(() => { /* shown in the panel */ }); });

@@ -23,11 +23,11 @@
 - Rewards (daily login streak, daily tasks, challenge sets), one-screen menu layout
 
 - Online: kick and ban for hosts, chat during a race (T)
-- Online game types: Brawl, Knockout, Coin Rush and Checkpoint Rush (the server keeps the clock and the score); Quick Match
+- Online game types: Brawl, Knockout, Coin Rush, Checkpoint Rush and Police Escape (the server keeps the clock and the score); Quick Match
 
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
-- Police Escape online (who stays free longest), shared (synced) traffic if players ask for it
+- shared (synced) traffic if players ask for it
 - Traffic lights and pedestrian crossings
 - Better bike and rider models (real GLB assets, with licence recorded)
 - More maps (rain, suburbs, off-road shortcuts)

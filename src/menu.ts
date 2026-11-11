@@ -29,6 +29,7 @@ export const MODES: { id: string; name: string; short: string; desc: string; lap
 /** The game types a room can play online: id, name, what it is. */
 const MP_TYPES: [string, string, string, string?][] = [['coins', 'Coin Rush', '100 seconds: collect the most coins (each coin goes to whoever reaches it first)', 'Coins'], ['rush', 'Checkpoint Rush', 'Start with 40 seconds, every checkpoint adds 7: the most checkpoints wins', 'Rush'], ['race', 'Race', 'First over the line after the laps wins'], ['brawl', 'Brawl', '90 seconds: the most knock-offs wins'], ['knockout', 'Knockout', 'Every 25 seconds the last rider is out']];
 MP_TYPES.push(...MP_TYPES.splice(0, 2));   // Race, Brawl, Knockout first
+MP_TYPES.push(['escape', 'Police Escape', 'Everyone starts wanted by the police: stay free for 2 minutes', 'Escape']);
 const mpType = (id: string) => MP_TYPES.find((x) => x[0] === id) ?? MP_TYPES[0];
 export const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
 if (!owns(opt.bike)) opt.bike = 'street';

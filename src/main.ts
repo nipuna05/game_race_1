@@ -9,7 +9,7 @@ import { net } from './net';
 import { makeVehicle } from './vehicles';
 import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
-import { BRAWL_SECONDS, KNOCKOUT_FIRST, KNOCKOUT_EVERY, COINS_SECONDS, RUSH_START } from '../shared/protocol';
+import { BRAWL_SECONDS, KNOCKOUT_FIRST, KNOCKOUT_EVERY, COINS_SECONDS, RUSH_START, ESCAPE_SECONDS } from '../shared/protocol';
 import { opt, initMenu, showHome, showPause, setTab, syncMe, MODES, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -155,7 +155,7 @@ class Game {
 
   constructor(mp: MpCfg | null = null) {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
-    if (mp) { this.mode = (['brawl', 'knockout', 'coins', 'rush'].includes(mp.settings.mode) ? mp.settings.mode : 'race') as Mode; this.laps = this.mode === 'race' ? mp.settings.laps : 999; this.modeT = this.mode === 'coins' ? COINS_SECONDS : this.mode === 'rush' ? RUSH_START : BRAWL_SECONDS; this.elimT = KNOCKOUT_FIRST; this.police = mp.settings.police; this.traffic = mp.settings.traffic; }   // traffic and police run on each player's own screen
+    if (mp) { this.mode = (['brawl', 'knockout', 'coins', 'rush', 'escape'].includes(mp.settings.mode) ? mp.settings.mode : 'race') as Mode; this.laps = this.mode === 'race' ? mp.settings.laps : 999; this.modeT = this.mode === 'escape' ? ESCAPE_SECONDS : this.mode === 'coins' ? COINS_SECONDS : this.mode === 'rush' ? RUSH_START : BRAWL_SECONDS; this.elimT = KNOCKOUT_FIRST; this.police = mp.settings.police || this.mode === 'escape'; this.traffic = this.mode === 'escape' ? Math.max(1, mp.settings.traffic) : mp.settings.traffic; }   // traffic and police run on each player's own screen
     this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
     if (mp) this.rivalN = 0;
     else {                                                                      // what each game type needs
@@ -236,7 +236,7 @@ class Game {
   /** Online Knockout: the server put a rider out. */
   remoteOut(id: number) {
     const r = this.riders.find((x) => x.netId === id); if (!r) return;
-    if (this.mode === 'rush') { if (!r.isPlayer) { this.eliminated.add(r); r.bike.mesh.root.visible = false; toast(`${r.name} is out of time`, 1600, '#ffb36b'); } return; }
+    if (this.mode === 'rush' || this.mode === 'escape') { if (!r.isPlayer) { this.eliminated.add(r); r.bike.mesh.root.visible = false; toast(this.mode === 'rush' ? `${r.name} is out of time` : `${r.name} was busted!`, 1600, '#ffb36b'); } return; }
     if (this.mode !== 'knockout') return; this.elimT = KNOCKOUT_EVERY;
     if (!r.isPlayer) { this.eliminated.add(r); r.bike.mesh.root.visible = false; this.modeScore++; toast(`${r.name} is out!`, 1800, '#ff8a8a'); sound.thump(8); return; }
     this.modeDone = true; this.phase = 'done'; $('wreck').classList.remove('on');
@@ -253,11 +253,20 @@ class Game {
     this.showResult('TIME UP', [['Checkpoints reached', String(this.modeScore)]], `${note}<br><span style="color:#8fb0d0;font-size:14px">Waiting for the other riders...</span>`);
     ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'LEAVE ROOM';
   }
+  /** Online Police Escape: the police caught me. I am done; the others ride on. */
+  mpBusted() {
+    if (this.modeDone) return;                                 // already busted (or the game is over): the police standing round the bike must not end it twice
+    this.modeDone = true; this.phase = 'done'; net.done(); $('wreck').classList.remove('on');
+    const sv = Math.round(ESCAPE_SECONDS - Math.max(0, this.modeT)), note = this.mpReward(false);
+    this.showResult('BUSTED', [['Time free', `${sv} s`], ['Riders still free', String(this.riders.length - 1 - this.eliminated.size)]], `${note}<br><span style="color:#8fb0d0;font-size:14px">Waiting for the other riders...</span>`);
+    ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'LEAVE ROOM';
+  }
   /** Online game types other than the race: coins and XP, given once. */
   mpReward(win: boolean): string {
     if (this.resultDone) return this.rewardNote; this.resultDone = true;
-    const m = this.mode, ko = this.player.ko ?? 0, n = this.modeScore, pts = this.player.pts ?? 0;
-    const [coins, xp] = m === 'brawl' ? [ko * 20 + (win ? 250 : 0), ko * 10 + (win ? 100 : 0)] : m === 'coins' ? [pts * 2 + (win ? 150 : 0), pts + (win ? 60 : 0)] : m === 'rush' ? [n * 20, n * 8] : [win ? 450 : n * 60, win ? 200 : n * 25];
+    const m = this.mode, ko = this.player.ko ?? 0, n = this.modeScore, pts = this.player.pts ?? 0, sv = Math.round(ESCAPE_SECONDS - Math.max(0, this.modeT));
+    if (m === 'escape' && win) bump('escape', 1);
+    const [coins, xp] = m === 'brawl' ? [ko * 20 + (win ? 250 : 0), ko * 10 + (win ? 100 : 0)] : m === 'coins' ? [pts * 2 + (win ? 150 : 0), pts + (win ? 60 : 0)] : m === 'rush' ? [n * 20, n * 8] : m === 'escape' ? [win ? 400 : sv * 2, win ? 150 : Math.floor(sv / 2)] : [win ? 450 : n * 60, win ? 200 : n * 25];
     const g = grant(coins, xp); bump('finish', 1); if (win) bump('win', 1);
     return (this.rewardNote = `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
   }
@@ -446,7 +455,7 @@ class Game {
   }
   endChase() { for (const a of this.agents) if (a.mode === 'chase') a.placeOnRoad(this.player.bike, 140); this.bust = 0; }
   busted() {
-    if (this.mode === 'escape') { this.endMode(false, 'BUSTED'); return; }
+    if (this.mode === 'escape') { if (this.mp) this.mpBusted(); else this.endMode(false, 'BUSTED'); return; }
     this.st.busted++; toast(`BUSTED! +${this.D.bustPen} s`, 2500, '#ff6b6b'); this.penalty += this.D.bustPen; this.raceT += this.D.bustPen; this.heat = 0; this.endChase(); this.bust = 0;
     const b = this.player.bike, back = this.routed ? node(this.player.passed - 1) : { x: 0, z: 0 };
     b.x = back.x; b.z = back.z; b.speed = 0; b.lat = 0;
@@ -788,7 +797,7 @@ class Game {
       case 'trial': { const par = this.parTimes(); return `<b>TIME TRIAL</b><br>Lap ${lap} / ${this.laps}<br>Time ${fmt(tm)}<br><small style="color:#ffd24a">GOLD ${fmt(par.gold)}</small> &nbsp;${hearts}${pen}`; }
       case 'rush': return `<b>${tl(this.modeT)}</b><br>Checkpoints ${this.modeScore}<br>${coinLine} &nbsp;${hearts}`;
       case 'knockout': { const alive = this.riders.length - this.eliminated.size; return `<b>${alive}</b> riders left<br>Next one out in ${Math.max(0, Math.ceil(this.elimT))} s<br>You are ${this.rank()} / ${alive}<br>${coinLine} &nbsp;${hearts}`; }
-      case 'escape': return `<b>${tl(this.modeT)}</b><br>Escape the police<br>${coinLine}`;
+      case 'escape': return `<b>${tl(this.modeT)}</b><br>Escape the police<br>${this.mp ? `${this.riders.length - this.eliminated.size} of ${this.riders.length} still free<br>` : ''}${coinLine}`;
       case 'brawl': { let best = 0; for (const r of this.riders) if (!r.isPlayer) best = Math.max(best, r.ko ?? 0); return `<b>${tl(this.modeT)}</b><br>Your knock-offs ${this.player.ko ?? 0}<br>Best rival ${best}<br>${coinLine}`; }
       case 'coins': if (this.mp) { let best = 0; for (const r of this.riders) if (!r.isPlayer) best = Math.max(best, r.pts ?? 0); return `<b>${tl(this.modeT)}</b><br>Your coins ${this.player.pts ?? 0}<br>Best rival ${best}`; }
         return `<b>${tl(this.modeT)}</b><br><span class="cn"><i class="coin"></i> ${Math.round(this.st.coins / 5)}</span>`;
@@ -802,7 +811,7 @@ class Game {
       case 'rush': this.modeT -= dt; if (this.modeT <= 0) { if (this.mp) this.mpTimeUp(); else this.endMode(this.modeScore >= 6, 'TIME UP'); } break;
       case 'coins': this.modeT -= dt; if (this.modeT <= 0) { if (this.mp) this.modeT = 0; else this.endMode(true, 'TIME UP'); } break;   // online, the server ends it
       case 'brawl': this.modeT -= dt; if (this.modeT <= 0) { if (this.mp) this.modeT = 0; else this.endMode(true, 'TIME UP'); } break;   // online, the server ends it
-      case 'escape': this.modeT -= dt; if (this.heat < 2) this.heat = 2; if (this.modeT <= 0) this.endMode(true, 'ESCAPED!'); break;
+      case 'escape': this.modeT -= dt; if (this.heat < 2) this.heat = 2; if (this.modeT <= 0) { if (this.mp) this.modeT = 0; else this.endMode(true, 'ESCAPED!'); } break;   // online, the server ends it
       case 'knockout': this.elimT -= dt; if (this.elimT <= 0) { if (this.mp) this.elimT = 0; else this.eliminate(); } break;   // online, the server says who is out
     }
   }
@@ -995,14 +1004,14 @@ net.h.results = (list: ResultRow[], mode: string) => {
   if (!game?.mp) return; const me = game.player.netId;
   let note = '';
   if (mode !== 'race') {                                       // Brawl and Knockout end here, for everyone at once
-    const top = list[0], win = top?.id === me && (mode === 'knockout' || ((top.score ?? 0) > 0 && (top.score ?? 0) > (list[1]?.score ?? 0)));   // a tied or empty brawl has no winner
+    const top = list[0], win = mode === 'escape' ? (list.find((r) => r.id === me)?.score ?? 0) >= ESCAPE_SECONDS : top?.id === me && (mode === 'knockout' || ((top.score ?? 0) > 0 && (top.score ?? 0) > (list[1]?.score ?? 0)));   // a tied or empty brawl has no winner
     note = game.mpReward(win);
     if (win && mode === 'rush') { const g = grant(150, 60); bump('win', 1); note += `<br>Winner bonus: +150 coins  +60 XP${g.levelUp ? '  LEVEL UP!' : ''}`; }   // a Rush pays out when your own clock stops, so the win bonus comes with the results
     game.modeDone = true; game.phase = 'done'; $('wreck').classList.remove('on'); closeRaceChat(); ui = 'result'; sound.engine(false);
   }
   const many = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
-  const cell = (r: ResultRow, i: number) => mode === 'brawl' ? many(r.score ?? 0, 'knock-off') : mode === 'coins' ? many(r.score ?? 0, 'coin') : mode === 'rush' ? many(r.score ?? 0, 'checkpoint') : mode === 'knockout' ? (i === 0 ? 'LAST RIDER STANDING' : r.score ? `outlasted ${r.score}` : 'first out') : r.time ? fmt(r.time) : 'DNF';
-  $('res-title').textContent = mode === 'brawl' ? 'BRAWL RESULTS' : mode === 'knockout' ? 'KNOCKOUT RESULTS' : mode === 'coins' ? 'COIN RUSH RESULTS' : mode === 'rush' ? 'CHECKPOINT RUSH RESULTS' : 'RESULTS'; $('res-big').style.display = 'none'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
+  const cell = (r: ResultRow, i: number) => mode === 'brawl' ? many(r.score ?? 0, 'knock-off') : mode === 'coins' ? many(r.score ?? 0, 'coin') : mode === 'rush' ? many(r.score ?? 0, 'checkpoint') : mode === 'escape' ? ((r.score ?? 0) >= ESCAPE_SECONDS ? 'ESCAPED' : `busted after ${r.score ?? 0} s`) : mode === 'knockout' ? (i === 0 ? 'LAST RIDER STANDING' : r.score ? `outlasted ${r.score}` : 'first out') : r.time ? fmt(r.time) : 'DNF';
+  $('res-title').textContent = mode === 'brawl' ? 'BRAWL RESULTS' : mode === 'knockout' ? 'KNOCKOUT RESULTS' : mode === 'coins' ? 'COIN RUSH RESULTS' : mode === 'rush' ? 'CHECKPOINT RUSH RESULTS' : mode === 'escape' ? 'POLICE ESCAPE RESULTS' : 'RESULTS'; $('res-big').style.display = 'none'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
   $('res-list').innerHTML = list.map((r, i) => `<div class="rr ${r.id === me ? 'me' : ''}"><span>${i + 1}</span><b>${r.name.replace(/[<>&]/g, '')}</b><em>${cell(r, i)}</em></div>`).join('') + (note ? `<div style="margin:10px 0 0;text-align:center;color:#ffd24a;font-size:16px;font-weight:700">${note}</div>` : '');
   $('results').classList.add('on'); sound.fanfare();
 };

@@ -28,6 +28,7 @@
   #turnsign.wrong svg { filter: drop-shadow(0 0 14px rgba(255,80,80,.9)) drop-shadow(0 5px 8px rgba(0,0,0,.65)); } #turnsign.wrong svg path { fill: #ff5a5a; } #turnsign.wrong b { border-color: #ff7a7a; color: #ff9a9a; }
   #heat { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font-size: 28px; letter-spacing: .15em; text-shadow: 0 2px 8px #000; text-align: center; }
   #heat small { display: block; font-size: 13px; letter-spacing: .12em; color: #ff8a8a; text-transform: uppercase; }
+  #smoke { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(150,155,160,.82), rgba(120,124,130,.97)); opacity: 0; transition: opacity .35s; }
   #toast { position: absolute; left: 50%; top: 42%; transform: translateX(-50%); font: 900 32px Orbitron, system-ui; text-shadow: 0 3px 14px #000; opacity: 0; transition: opacity .25s; text-align: center; max-width: 90vw; }
   #toast.on { opacity: 1; }
   #bigmap { position: absolute; right: 230px; top: 20px; width: 190px; height: 190px; border-radius: 12px; border: 2px solid rgba(255,255,255,.3); background: rgba(10,14,20,.7); transition: all .2s; }
@@ -185,11 +186,13 @@
   <canvas id="bigmap" width="380" height="380"></canvas>
   <canvas id="mini" width="380" height="380"></canvas>
   <div id="speed"><b id="spd">0</b><small>km/h</small><div id="powers"></div><div id="boostbar"><div id="boostfill"></div></div></div>
-  <div id="hint">W / Up gas &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake &nbsp; Shift boost &nbsp; Q / E punch &nbsp; F kick &nbsp; R reset &nbsp; M map &nbsp; T chat (online) &nbsp; H tips &nbsp; Esc pause</div>
+  <div id="hint">W / Up gas &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake &nbsp; Shift boost &nbsp; Q / E punch &nbsp; F kick &nbsp; G use power &nbsp; R reset &nbsp; M map &nbsp; T chat (online) &nbsp; H tips &nbsp; Esc pause</div>
   <div id="flash"></div>
+  <div id="smoke"></div>
   <div id="tips"><b>RACING TIPS</b><ul>
     <li><kbd>W</kbd> gas, <kbd>A</kbd> <kbd>D</kbd> steer. Ease off the gas before a corner, and tap <kbd>Space</kbd> to drift round a tight one.</li>
     <li><kbd>Q</kbd> <kbd>E</kbd> punch left / right, <kbd>F</kbd> kick. Come up fast behind a rider to knock them off.</li>
+    <li>In a <b style="font:inherit;color:#ffd24a">Power Race</b> the crates hold powers (oil, smoke, bombs, EMP, hook, rocket, warp): press <kbd>G</kbd> to use the one you hold.</li>
     <li>Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over the orange arrows for speed.</li>
     <li>Gold coins buy new bikes in the Garage. Hit people or crash and the police chase you.</li>
   </ul><small>Press H to show this again</small></div>

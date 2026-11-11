@@ -97,6 +97,7 @@ export interface City { group: THREE.Group; /** Shows the traffic lights as they
  *  Neighbouring intersections start at different points of the cycle, so the whole city does not stop at once. */
 export type Signal = 'g' | 'a' | 'r';
 export function signalAt(axis: 'x' | 'z', i: number, j: number, t: number): Signal {
+  if (i === 0 && j === 0) return 'g';                         // the central junction has no lights (the home page shows the bike there, with the camera circling it)
   const shift = ((((i * 5 + j * 11) % 3) + 3) % 3) * 6;
   const ph = (((t + shift + (axis === 'z' ? 9 : 0)) % 18) + 18) % 18;
   return ph < 6.5 ? 'g' : ph < 8.5 ? 'a' : 'r';
@@ -196,6 +197,7 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
   const sq = new THREE.Quaternion(), yUp = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), sv = new THREE.Vector3();
   let np = 0;
   for (let i = -K; i <= K; i++) for (let j = -K; j <= K; j++) {
+    if (i === 0 && j === 0) continue;                         // no lights at the central junction: see signalAt
     const cx2 = i * P, cz2 = j * P;
     // road, where it stands, which way its lamps look (towards the driver coming up to the junction), and whether it needs its own pole
     const spots: ['x' | 'z', number, number, number, boolean][] = [
@@ -210,6 +212,7 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
       for (let b = 0; b < 3; b++) { m.compose(sv.set(x + fx * 0.58, 5.25 - b * 0.65, z + fz * 0.58), sq, one); bulbs.setMatrixAt(hd * 3 + b, m); }
     }
   }
+  sigPoles.count = np; heads.count = sig.length; bulbs.count = sig.length * 3;
   for (const im of [sigPoles, heads, bulbs]) im.frustumCulled = false;
   group.add(sigPoles, heads, bulbs);
   const LIT = [0xff3b30, 0xffc21a, 0x2bff7a].map((c) => new THREE.Color(c)), DIM = [0x3a1513, 0x3a2f10, 0x103a1e].map((c) => new THREE.Color(c));

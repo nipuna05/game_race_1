@@ -81,9 +81,27 @@ Render's free web service runs the same server from the `Dockerfile`:
 
 The free service sleeps after about 15 minutes with nobody connected. The first player then waits up to a minute (the Online tab says "Waking up the server..."), and rooms are lost when it sleeps.
 
+## Power Race
+
+A race where the crates hold powers instead of the usual power-ups. You hold one at a time (a new crate replaces it) and use it with **G**:
+
+| Power | What it does |
+| --- | --- |
+| Oil | Dropped behind you. Riders who ride over it lose control and slide for a moment. |
+| Smoke bomb | A cloud behind you for 10 seconds: a player inside sees nothing, computer riders slow right down. |
+| Bomb | Thrown ahead. Knocks off the riders near where it lands. |
+| EMP bomb | Thrown ahead. Engines near it cut out: slow for 3.5 seconds, boost emptied. |
+| Hook | A rope to the rider ahead: they are dragged back and slowed, you are pulled forward. |
+| Rocket | Follows the rider ahead and knocks them off. |
+| Warp | Jumps you ahead along the road, up to 48 m, never past the next checkpoint. |
+
+The crates can also hold a **stick** (25 seconds) or a **chain** (18 seconds). While you hold one, **Q / E** swing it instead of punching: it reaches further than a fist (the chain furthest) and one hit knocks a rider off. Sticks and chains are in the Brawl crates too.
+
+A shield blocks all of them. Computer riders pick up and use powers too. It is on the Play tab and in online rooms (the host picks **Power**); online, each player's own page decides what a power does to their bike. Power Race best times are kept apart from normal race times.
+
 ## Traffic lights
 
-Every intersection has traffic lights and zebra crossings. Each one runs an 18-second cycle (green, amber, red), and neighbouring intersections are out of step. Cars, buses and patrolling police stop at the line on red and queue behind each other; police that are chasing you ignore the lights. The lights are not a rule for you: nothing happens if you ride through a red one, but the cross traffic will be moving.
+Every intersection has traffic lights and zebra crossings. Each one runs an 18-second cycle (green, amber, red), and neighbouring intersections are out of step (the junction in the very centre of the city has none). Cars, buses and patrolling police stop at the line on red and queue behind each other; police that are chasing you ignore the lights. The lights are not a rule for you: nothing happens if you ride through a red one, but the cross traffic will be moving.
 
 ## Bikes and maps
 

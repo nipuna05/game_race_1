@@ -18,17 +18,19 @@ setSteer((Number(opt.steer) || 100) / 100);
 /** The game types. laps / rivals say which options apply. */
 export const MODES: { id: string; name: string; short: string; desc: string; laps?: boolean; rivals?: boolean }[] = [
   { id: 'race', name: 'Race', short: 'Beat the rivals', desc: 'Race rival riders around the route. First across the line after the laps wins.', laps: true, rivals: true },
+  { id: 'power', name: 'Power Race', short: 'Oil, bombs, rockets', desc: 'A race with powers. The crates give you oil, smoke, bombs, EMP bombs, a hook, a homing rocket or a warp jump (press G to use the one you hold), or a stick or a chain to swing with Q / E.', laps: true, rivals: true },
   { id: 'trial', name: 'Time Trial', short: 'Ride for a medal', desc: 'Ride the route alone against the clock. Beat the bronze, silver or gold time.', laps: true },
   { id: 'rush', name: 'Checkpoint Rush', short: 'Beat the clock', desc: 'You start with 40 seconds. Every checkpoint adds 7 more. How many can you reach?' },
   { id: 'knockout', name: 'Knockout', short: 'Last one standing', desc: 'Every 25 seconds the rider in last place is knocked out. Be the last one left.', rivals: true },
   { id: 'escape', name: 'Police Escape', short: 'Survive 2 minutes', desc: 'You start with four stars and the whole police force after you. Stay free for 2 minutes.' },
-  { id: 'brawl', name: 'Brawl', short: 'Knock them off', desc: '90 seconds of street fighting. Knock off more riders than anyone else. Grab power crates!', rivals: true },
+  { id: 'brawl', name: 'Brawl', short: 'Knock them off', desc: '90 seconds of street fighting. Knock off more riders than anyone else. Grab the crates: some hold a stick or a chain!', rivals: true },
   { id: 'coins', name: 'Coin Rush', short: 'Grab the gold', desc: '100 seconds to collect as many gold coins as you can across the city.' },
   { id: 'free', name: 'Free ride', short: 'Just explore', desc: 'Ride wherever you like. No rules, no clock.' },
 ];
 /** The game types a room can play online: id, name, what it is. */
 const MP_TYPES: [string, string, string, string?][] = [['coins', 'Coin Rush', '100 seconds: collect the most coins (each coin goes to whoever reaches it first)', 'Coins'], ['rush', 'Checkpoint Rush', 'Start with 40 seconds, every checkpoint adds 7: the most checkpoints wins', 'Rush'], ['race', 'Race', 'First over the line after the laps wins'], ['brawl', 'Brawl', '90 seconds: the most knock-offs wins'], ['knockout', 'Knockout', 'Every 25 seconds the last rider is out']];
 MP_TYPES.push(...MP_TYPES.splice(0, 2));   // Race, Brawl, Knockout first
+MP_TYPES.push(['power', 'Power Race', 'A race with powers from the crates (oil, smoke, bombs, EMP, hook, rocket, warp): press G to use one', 'Power']);
 MP_TYPES.push(['escape', 'Police Escape', 'Everyone starts wanted by the police: stay free for 2 minutes', 'Escape']);
 const mpType = (id: string) => MP_TYPES.find((x) => x[0] === id) ?? MP_TYPES[0];
 export const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
@@ -114,7 +116,7 @@ function render() {
     const dsc = { easy: 'Slower rivals and police, 5 respawns, forgiving crashes. Rewards x0.7.', normal: 'The standard challenge. Rewards x1.', hard: 'Fast aggressive rivals who use boost, quicker police, 2 respawns, harsh crashes. Rewards x1.5.' }[opt.diff] ?? '';
     const typePage = `<div class="cards modes">${MODES.map((x) => `<div class="card ${x.id === opt.mode ? 'on' : ''}" data-mode="${x.id}"><b>${x.name}</b><small>${x.short}</small></div>`).join('')}</div>
       <div class="desc" style="margin:10px 0 4px">${md.desc}</div>
-      <div class="rulesum">Rules: <b>${({ easy: 'Easy', normal: 'Normal', hard: 'Hard' } as Record<string, string>)[opt.diff] ?? 'Normal'}</b> &middot; ${md.id === 'escape' || opt.police === '1' ? 'Police on' : 'Police off'} &middot; Traffic ${['empty', 'normal', 'busy'][Number(opt.traffic)] ?? 'normal'}${md.laps ? ` &middot; ${opt.laps} lap${opt.laps === '1' ? '' : 's'}` : ''}${md.rivals ? ` &middot; ${Math.max(Number(opt.rivals), md.id === 'race' ? 0 : 5)} rivals` : ''}</div>`;
+      <div class="rulesum">Rules: <b>${({ easy: 'Easy', normal: 'Normal', hard: 'Hard' } as Record<string, string>)[opt.diff] ?? 'Normal'}</b> &middot; ${md.id === 'escape' || opt.police === '1' ? 'Police on' : 'Police off'} &middot; Traffic ${['empty', 'normal', 'busy'][Number(opt.traffic)] ?? 'normal'}${md.laps ? ` &middot; ${opt.laps} lap${opt.laps === '1' ? '' : 's'}` : ''}${md.rivals ? ` &middot; ${Math.max(Number(opt.rivals), md.id === 'race' || md.id === 'power' ? 0 : 5)} rivals` : ''}</div>`;
     const rulesPage = `${seg('diff', 'Difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']])}
       <div class="desc" style="margin:-4px 0 8px;font-size:14px">${dsc}</div>
       ${md.id === 'escape' ? '' : seg('police', 'Police', [['1', 'On'], ['0', 'Off']])}
@@ -150,12 +152,12 @@ function render() {
         ${host ? `<h3>Race settings</h3>
           <div class="row"><span>Game type</span><div class="seg" id="mpmode">${MP_TYPES.map(([v, nm, d, sh]) => `<button data-v="${v}" title="${nm}: ${d}" class="${st.mode === v ? 'on' : ''}">${sh ?? nm}</button>`).join('')}</div></div>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
-          ${st.mode === 'race' ? `<div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : `<div class="row"><span>Rules</span><small style="color:#8fb0d0;font-weight:600">${mpType(st.mode)[2]}${L.players.length < 2 ? ' &middot; needs 2 players' : ''}</small></div>`}
+          ${st.mode === 'race' || st.mode === 'power' ? `<div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : `<div class="row"><span>Rules</span><small style="color:#8fb0d0;font-weight:600">${mpType(st.mode)[2]}${L.players.length < 2 ? ' &middot; needs 2 players' : ''}</small></div>`}
           <div class="row"><span>Police</span><div class="seg" id="mppol"><button data-v="1" class="${st.police ? 'on' : ''}">On</button><button data-v="0" class="${st.police ? '' : 'on'}">Off</button></div></div>
           <div class="row"><span>Traffic and people</span><div class="seg" id="mptraf">${[['0', 'Empty'], ['1', 'Normal'], ['2', 'Busy']].map(([v, nm]) => `<button data-v="${v}" class="${st.traffic === Number(v) ? 'on' : ''}">${nm}</button>`).join('')}</div></div>
           <div class="row"><span>Room</span><div class="seg" id="mppub"><button data-v="1" class="${L.pub ? 'on' : ''}">Public</button><button data-v="0" class="${L.pub ? '' : 'on'}">Private</button></div></div>
           <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START ${mpType(st.mode)[1].toUpperCase()}</button>`
-        : `<h3>Race settings</h3><div class="desc"><b>${mpType(st.mode)[1]}</b>: ${mpType(st.mode)[2]}<br>${MAPS.find((x) => x.id === st.map)?.name ?? st.map}${st.mode === 'race' ? ` &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}` : ''} &middot; Police ${st.police ? 'on' : 'off'} &middot; Traffic ${['empty', 'normal', 'busy'][st.traffic] ?? 'normal'}<br>Waiting for the host to start...</div>`}
+        : `<h3>Race settings</h3><div class="desc"><b>${mpType(st.mode)[1]}</b>: ${mpType(st.mode)[2]}<br>${MAPS.find((x) => x.id === st.map)?.name ?? st.map}${st.mode === 'race' || st.mode === 'power' ? ` &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}` : ''} &middot; Police ${st.police ? 'on' : 'off'} &middot; Traffic ${['empty', 'normal', 'busy'][st.traffic] ?? 'normal'}<br>Waiting for the host to start...</div>`}
         <h3>Chat</h3><div class="chat" id="chatlog">${net.chatLog.map((c) => `<div><b>${clean(c.name)}</b> ${clean(c.text)}</div>`).join('')}</div>
         <input id="chatin" class="txt" maxlength="120" placeholder="Type a message and press Enter" spellcheck="false" style="margin-top:6px" />
         <button class="danger" id="mpleave">Leave room</button>${net.error ? `<div class="err">${net.error}</div>` : ''}`;

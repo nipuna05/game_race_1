@@ -33,6 +33,10 @@ export class Bike {
   balance = 1; fall = 0; fallDir = 1; inv = 0; punchCd = 0; kickCd = 0; swingT = 0; swingKind: 'punch' | 'kick' = 'punch'; swingSide: 1 | -1 = 1;
   // power-ups (seconds left)
   turbo = 0; shield = 0; power = 0; padT = 0;
+  // Power Race: seconds left of being slowed (hooked or hit by an EMP) and of sliding on oil
+  snag = 0; slip = 0; slipDir: 1 | -1 = 1;
+  // a stick or a chain in the hand (seconds left): Q / E swing it, it reaches further than a fist and knocks a rider off in one hit
+  stick = 0; chain = 0;
   def: BikeDef;
   constructor(color: number, def: BikeDef = BIKES[0]) { this.def = def; this.mesh = makeBikeMesh(color, def); }
   get fwd() { return { x: Math.sin(this.h), z: Math.cos(this.h) }; }
@@ -41,13 +45,17 @@ export class Bike {
   step(inp: Input, dt: number): number {
     const d = this.def;
     this.punchCd = Math.max(0, this.punchCd - dt); this.kickCd = Math.max(0, this.kickCd - dt); this.swingT = Math.max(0, this.swingT - dt);
-    this.turbo = Math.max(0, this.turbo - dt); this.shield = Math.max(0, this.shield - dt); this.power = Math.max(0, this.power - dt); this.padT = Math.max(0, this.padT - dt); this.inv = Math.max(0, this.inv - dt);
+    this.turbo = Math.max(0, this.turbo - dt); this.shield = Math.max(0, this.shield - dt); this.power = Math.max(0, this.power - dt); this.padT = Math.max(0, this.padT - dt); this.inv = Math.max(0, this.inv - dt); this.snag = Math.max(0, this.snag - dt); this.stick = Math.max(0, this.stick - dt); this.chain = Math.max(0, this.chain - dt);
     if (this.fall > 0) return this.stepFall(dt);
+    if (this.slip > 0) {                                       // on oil: no control, the bike slews round and slides sideways
+      this.slip -= dt; inp = { throttle: 0, steer: 0, hand: false, boost: false };
+      this.h += this.slipDir * 0.9 * dt; this.lat += this.slipDir * 16 * dt; this.speed *= Math.exp(-dt * 0.5);
+    }
     this.balance = Math.min(1, this.balance + dt * 0.22);
     this.steerAngle += (inp.steer * 0.4 - this.steerAngle) * Math.min(1, dt * 10);
     this.boosting = inp.boost && this.boostLeft > 0.02 && inp.throttle > 0;
     if (this.boosting) this.boostLeft = Math.max(0, this.boostLeft - dt * 0.28 / d.boost); else this.boostLeft = Math.min(1, this.boostLeft + dt * 0.07);
-    const top = (this.boosting ? BOOST_SPEED * (1 + (d.boost - 1) * 0.5) : MAX_SPEED) * d.top * this.skill * (this.turbo > 0 ? 1.3 : 1) * (this.padT > 0 ? 1.2 : 1);
+    const top = (this.boosting ? BOOST_SPEED * (1 + (d.boost - 1) * 0.5) : MAX_SPEED) * d.top * this.skill * (this.turbo > 0 ? 1.3 : 1) * (this.padT > 0 ? 1.2 : 1) * (this.snag > 0 ? 0.45 : 1);
     if (inp.throttle > 0) {
       const a = (this.boosting ? 30 : 17) * d.accel * (this.turbo > 0 ? 1.5 : 1) * (this.padT > 0 ? 1.6 : 1) * Math.pow(Math.max(0, 1 - this.speed / top), 0.6) + 1.5;
       this.speed += this.speed > top ? -10 * dt : a * dt;
@@ -92,7 +100,9 @@ export class Bike {
   }
   /** Start a punch (with the right or left hand) or a kick. */
   swing(kind: 'punch' | 'kick', side: 1 | -1) { this.swingKind = kind; this.swingSide = side; this.swingT = kind === 'kick' ? 0.35 : 0.25; if (kind === 'punch') this.punchCd = 0.45; else this.kickCd = 0.8; }
-  grant(type: 'nitro' | 'turbo' | 'shield' | 'power') {
+  grant(type: 'nitro' | 'turbo' | 'shield' | 'power' | 'stick' | 'chain') {
+    if (type === 'stick') { this.stick = 25; this.chain = 0; return; }
+    if (type === 'chain') { this.chain = 18; this.stick = 0; return; }
     if (type === 'nitro') { this.boostLeft = 1; this.speed = Math.min(this.speed + 9, BOOST_SPEED + 4); }
     else if (type === 'turbo') this.turbo = 6; else if (type === 'shield') this.shield = 8; else this.power = 10;
   }

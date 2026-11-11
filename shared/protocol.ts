@@ -1,9 +1,11 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const MAX_PLAYERS = 12;
 export const BIKE_IDS = ['scooter', 'vespa', 'chopper', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 /** The game types a room can play online. */
-export const MP_MODES = ['race', 'brawl', 'knockout', 'coins', 'rush', 'escape'];
+export const MP_MODES = ['race', 'brawl', 'knockout', 'coins', 'rush', 'escape', 'power'];
+/** Power Race: what a player can do to the others (each player's page works out what it does to their own bike). */
+export const FX_KINDS = ['oil', 'smoke', 'bomb', 'emp', 'hook', 'rocket'];
 export const BRAWL_SECONDS = 90, KNOCKOUT_FIRST = 30, KNOCKOUT_EVERY = 25, COINS_SECONDS = 100, RUSH_START = 40, RUSH_CAP = 300, ESCAPE_SECONDS = 120;   // RUSH_CAP: a Checkpoint Rush is ended after this long, whoever is still riding
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
 
@@ -18,7 +20,7 @@ export interface RiderState {
   v: number; l: number;                  // speed and sideways slide
   st: number; ln: number;                // steering angle and lean
   f: number; fd: number;                 // fallen (0/1) and which way
-  pw: number;                            // power-ups: 1 super speed, 2 shield, 4 power hits
+  pw: number;                            // power-ups: 1 super speed, 2 shield, 4 power hits, 8 holding a stick, 16 holding a chain
   p: number;                             // checkpoints passed
   pr: number;                            // how far along the route (Knockout: the server puts out the rider with the lowest)
   sw: number;                            // punch/kick in progress: 1 punch right, 2 punch left, 3 kick right, 4 kick left
@@ -39,6 +41,7 @@ export type C2S =
   | { t: 'loot'; i: number }
   | { t: 'coin'; i: number }                    // Coin Rush: I rode over this coin (the first to say so gets it)
   | { t: 'done' }                               // Checkpoint Rush: my clock ran out; Police Escape: I was busted
+  | { t: 'fx'; k: string; x: number; z: number; to?: number }   // Power Race: I used a power here (to: the rider it is aimed at)
   | { t: 'ko'; by: number }                     // I was knocked off my bike by this player (the one who fell reports it)
   | { t: 'fin'; time: number }
   | { t: 'leave' };
@@ -53,6 +56,7 @@ export type S2C =
   | ({ t: 's'; id: number } & RiderState)
   | { t: 'hit'; from: number; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }
   | { t: 'loot'; id: number; i: number }
+  | { t: 'fx'; id: number; k: string; x: number; z: number; to: number }   // Power Race: this player used a power
   | { t: 'ko'; by: number; to: number }         // a knock-off, counted by the server
   | { t: 'out'; id: number }                    // Knockout: this rider is out; Checkpoint Rush: this rider's clock ran out; Police Escape: busted
   | { t: 'coin'; id: number; i: number }        // Coin Rush: this player got this coin

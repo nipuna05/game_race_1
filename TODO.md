@@ -29,6 +29,8 @@
 
 - Traffic lights at every intersection (cars stop on red) and zebra crossings
 
+- Power Race: a race with seven powers from the crates (oil, smoke bomb, bomb, EMP bomb, hook, rocket, warp), single player and online; sticks and chains to swing (Power Race and Brawl)
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
 - shared (synced) traffic if players ask for it

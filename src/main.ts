@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildCity, configure, MAPS, P, R, K, HALF, rnd, clamp, type City, type MapDef } from './city';
+import { buildCity, configure, collideWorld, MAPS, P, R, K, HALF, rnd, clamp, type City, type MapDef } from './city';
 import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -58,6 +58,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM' && ui === 'play' && !e.repeat) bigMap = !bigMap;
   if (e.code === 'Escape') { if (ui === 'play') setPause(true); else if (ui === 'pause') setPause(false); }
   if (e.code === 'KeyR' && ui === 'play' && game) game.resetPlayer();
+  if (e.code === 'KeyG' && ui === 'play' && game && !e.repeat) game.useWeapon(game.player);
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -73,13 +74,31 @@ const toast = (msg: string, ms = 1600, color = '#fff') => {
   window.clearTimeout((toast as any).t); (toast as any).t = window.setTimeout(() => el.classList.remove('on'), ms);
 };
 
-type LootType = 'nitro' | 'turbo' | 'shield' | 'power';
+/** Power Race: the powers the crates give (used with G). */
+type Weapon = 'oil' | 'smoke' | 'bomb' | 'emp' | 'hook' | 'rocket' | 'warp';
+const WEAPONS: Weapon[] = ['oil', 'smoke', 'bomb', 'emp', 'hook', 'rocket', 'warp'];
+const isWeapon = (t: LootType): t is Weapon => (WEAPONS as string[]).includes(t);
+type LootType = 'nitro' | 'turbo' | 'shield' | 'power' | 'stick' | 'chain' | Weapon;
 const LOOT: Record<LootType, { name: string; letter: string; color: string; hex: number; text: string }> = {
   nitro: { name: 'NITRO', letter: 'N', color: '#3aa8ff', hex: 0x3aa8ff, text: 'Boost refilled and a burst of speed' },
   turbo: { name: 'SUPER SPEED', letter: 'S', color: '#ff5a3a', hex: 0xff5a3a, text: 'Much higher top speed for 6 seconds' },
   shield: { name: 'SHIELD', letter: 'D', color: '#3ddc84', hex: 0x3ddc84, text: 'Nobody can knock you off for 8 seconds' },
   power: { name: 'POWER HITS', letter: 'P', color: '#c77dff', hex: 0xc77dff, text: 'Your punches and kicks knock riders down for 10 seconds' },
+  stick: { name: 'STICK', letter: 'I', color: '#c98b4a', hex: 0xc98b4a, text: 'Q / E swing it for 25 seconds: longer reach, one hit knocks a rider off' },
+  chain: { name: 'CHAIN', letter: 'C', color: '#c0c7d1', hex: 0xc0c7d1, text: 'Q / E swing it for 18 seconds: the longest reach, one hit knocks a rider off' },
+  oil: { name: 'OIL', letter: 'O', color: '#a9793a', hex: 0xa9793a, text: 'Press G to drop it behind you: riders slide on it' },
+  smoke: { name: 'SMOKE BOMB', letter: 'S', color: '#9aa3ad', hex: 0x9aa3ad, text: 'Press G to leave a cloud behind you that nobody can see through' },
+  bomb: { name: 'BOMB', letter: 'B', color: '#e74c3c', hex: 0xe74c3c, text: 'Press G to throw it ahead: it knocks riders off' },
+  emp: { name: 'EMP BOMB', letter: 'E', color: '#4cf0ff', hex: 0x4cf0ff, text: 'Press G to throw it ahead: engines near it cut out' },
+  hook: { name: 'HOOK', letter: 'H', color: '#f39c12', hex: 0xf39c12, text: 'Press G to hook the rider ahead: they are dragged back, you are pulled forward' },
+  rocket: { name: 'ROCKET', letter: 'R', color: '#ff7ad9', hex: 0xff7ad9, text: 'Press G to fire it: it follows the rider ahead' },
+  warp: { name: 'WARP', letter: 'W', color: '#b388ff', hex: 0xb388ff, text: 'Press G to jump ahead along the road' },
 };
+const OIL_GEO = new THREE.CircleGeometry(2.6, 22), OIL_MAT = new THREE.MeshBasicMaterial({ color: 0x07080d, transparent: true, opacity: 0.88 });
+const PUFF_GEO = new THREE.SphereGeometry(4.2, 10, 8), SMOKE_MAT = new THREE.MeshBasicMaterial({ color: 0x9a9fa6, transparent: true, opacity: 0.93, depthWrite: false });
+const SHOT_GEO = new THREE.SphereGeometry(0.5, 10, 8), BOMB_MAT = new THREE.MeshBasicMaterial({ color: 0x1a1a1a }), EMP_MAT = new THREE.MeshBasicMaterial({ color: 0x4cf0ff }), ROCKET_MAT = new THREE.MeshBasicMaterial({ color: 0xff7ad9 });
+const STICK_GEO = new THREE.CylinderGeometry(0.05, 0.065, 1.7, 8), STICK_MAT = new THREE.MeshLambertMaterial({ color: 0x8a5a2b }), LINK_GEO = new THREE.TorusGeometry(0.11, 0.035, 6, 10), CHAIN_MAT = new THREE.MeshLambertMaterial({ color: 0xb9c0ca });
+const BOOM_GEO = new THREE.SphereGeometry(1, 14, 10), RING_GEO = new THREE.RingGeometry(0.82, 1, 40), ROPE_MAT = new THREE.LineBasicMaterial({ color: 0xf2e6c8 });
 interface Loot { type: LootType; x: number; z: number; cd: number; mesh: THREE.Group }
 interface Pad { x: number; z: number; axis: 'x' | 'z'; mesh: THREE.Group }
 const lootMats: Partial<Record<LootType, THREE.MeshBasicMaterial>> = {};
@@ -103,8 +122,8 @@ function padMat(): THREE.MeshBasicMaterial {
 }
 
 const BOT_NAMES = ['Blaze', 'Viper', 'Rocket', 'Nitro', 'Ghost', 'Turbo', 'Rogue', 'Drift', 'Hawk', 'Storm', 'Maverick', 'Bolt'];
-type Mode = 'race' | 'trial' | 'rush' | 'knockout' | 'escape' | 'brawl' | 'coins' | 'free';
-interface Rider { ko?: number; pts?: number; bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean; remote?: boolean; netId?: number; tgt?: RiderState; lastSw?: number }
+type Mode = 'race' | 'power' | 'trial' | 'rush' | 'knockout' | 'escape' | 'brawl' | 'coins' | 'free';
+interface Rider { melee?: { kind: 'stick' | 'chain'; obj: THREE.Group } | null; weapon?: Weapon | null; useAt?: number; gotAt?: number; ko?: number; pts?: number; bike: Bike; passed: number; finishedAt: number; name: string; lane: number; isPlayer: boolean; remote?: boolean; netId?: number; tgt?: RiderState; lastSw?: number }
 /** What Easy, Normal and Hard change. Online races always use Normal. */
 interface Diff { label: string; corner: number; skill: [number, number]; aiGap: [number, number]; aiBoost: boolean; police: { spd: number; bust: number; decay: number; heat: number; extra: number }; lives: number; respawnPen: number; bustPen: number; wreckImpact: number; reward: number }
 const DIFFS: Record<string, Diff> = {
@@ -151,14 +170,19 @@ class Game {
   bumpT = 0; rivalN = 0; modeT = 0; modeScore = 0; elimT = 30; eliminated = new Set<Rider>(); modeDone = false;
   coinPos: { x: number; z: number; got: boolean }[] = []; coinMesh: THREE.InstancedMesh | null = null;
   mp: MpCfg | null = null; rand: () => number = Math.random; sendAcc = 0; hitAt = new Map<number, number>();
+  weapons = false;                                             // Power Race: the crates hold powers
+  patches: { kind: 'oil' | 'smoke'; x: number; z: number; born: number; until: number; owner: Rider | null; mesh: THREE.Object3D }[] = [];
+  shots: { kind: 'bomb' | 'emp' | 'rocket'; x: number; z: number; x0: number; z0: number; tx: number; tz: number; t0: number; owner: Rider | null; target: Rider | null; mesh: THREE.Mesh }[] = [];
+  bursts: { mesh: THREE.Mesh; born: number; life: number; radius: number }[] = []; ropes: { line: THREE.Line; a: Rider; b: Rider; until: number }[] = []; fxObjs: THREE.Object3D[] = [];
   st: RunStats = { dist: 0, top: 0, ko: 0, fell: 0, wrecks: 0, busted: 0, ped: 0, loot: 0, coins: 0, sec: 0 }; committed = false; resultDone = false;
 
   constructor(mp: MpCfg | null = null) {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
-    if (mp) { this.mode = (['brawl', 'knockout', 'coins', 'rush', 'escape'].includes(mp.settings.mode) ? mp.settings.mode : 'race') as Mode; this.laps = this.mode === 'race' ? mp.settings.laps : 999; this.modeT = this.mode === 'escape' ? ESCAPE_SECONDS : this.mode === 'coins' ? COINS_SECONDS : this.mode === 'rush' ? RUSH_START : BRAWL_SECONDS; this.elimT = KNOCKOUT_FIRST; this.police = mp.settings.police || this.mode === 'escape'; this.traffic = this.mode === 'escape' ? Math.max(1, mp.settings.traffic) : mp.settings.traffic; }   // traffic and police run on each player's own screen
+    if (mp) { this.mode = (['brawl', 'knockout', 'coins', 'rush', 'escape'].includes(mp.settings.mode) ? mp.settings.mode : 'race') as Mode; this.laps = this.mode === 'race' ? mp.settings.laps : 999; this.modeT = this.mode === 'escape' ? ESCAPE_SECONDS : this.mode === 'coins' ? COINS_SECONDS : this.mode === 'rush' ? RUSH_START : BRAWL_SECONDS; this.elimT = KNOCKOUT_FIRST; this.weapons = mp.settings.mode === 'power'; this.police = mp.settings.police || this.mode === 'escape'; this.traffic = this.mode === 'escape' ? Math.max(1, mp.settings.traffic) : mp.settings.traffic; }   // traffic and police run on each player's own screen
     this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
     if (mp) this.rivalN = 0;
     else {                                                                      // what each game type needs
+      if (this.mode === 'power') { this.mode = 'race'; this.weapons = true; }   // a Power Race is a race where the crates hold powers
       const rv = Number(opt.rivals);
       switch (this.mode) {
         case 'race': this.rivalN = rv; break;
@@ -215,7 +239,7 @@ class Game {
       let dh = s.h - b.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2; b.h += dh * k;
       b.speed += (s.v - b.speed) * k; b.lat = s.l; b.steerAngle = s.st; b.fall = s.f ? 1 : 0; b.fallDir = s.fd < 0 ? -1 : 1;
       b.leanAngle += ((s.f ? b.fallDir * 1.5 : s.ln) - b.leanAngle) * Math.min(1, dt * 10);
-      b.turbo = s.pw & 1 ? 1 : 0; b.shield = s.pw & 2 ? 1 : 0; b.power = s.pw & 4 ? 1 : 0; r.passed = s.p;
+      b.turbo = s.pw & 1 ? 1 : 0; b.shield = s.pw & 2 ? 1 : 0; b.power = s.pw & 4 ? 1 : 0; b.stick = s.pw & 8 ? 1 : 0; b.chain = s.pw & 16 ? 1 : 0; r.passed = s.p;
       if (s.sw && s.sw !== r.lastSw) b.swing(s.sw <= 2 ? 'punch' : 'kick', s.sw === 1 || s.sw === 3 ? 1 : -1);
       r.lastSw = s.sw;
       if (!wasFall && b.fall > 0 && this.t - (this.hitAt.get(r.netId!) ?? -9) < 1.2) { this.st.ko++; bump('ko', 1); toast(`${r.name} is down!`, 1200, '#8affb0'); sound.fall(); }
@@ -231,6 +255,177 @@ class Game {
     if (res === 'fell') { sound.fall(); toast(`${who} knocked you off!`, 1400, '#ff8a8a'); net.ko(m.from); this.playerFell(); } else { sound.punch(); toast(m.how === 'rear' ? 'Bumped!' : m.how === 'kick' ? 'Kick!' : 'Punch!', 500, '#ffd24a'); }
   }
   remoteLoot(i: number) { const l = this.loots[i]; if (l && l.cd <= 0) { l.cd = 14; l.mesh.visible = false; } }
+
+  /** Shows the stick or the chain in a rider's hand while they hold one, and swings it with the punch. */
+  syncMelee(r: Rider) {
+    const b = r.bike, kind = b.chain > 0 ? 'chain' : b.stick > 0 ? 'stick' : null;
+    if (r.melee && r.melee.kind !== kind) { b.mesh.lean.remove(r.melee.obj); r.melee = null; }
+    if (!kind) return;
+    if (!r.melee) {
+      const obj = new THREE.Group();
+      if (kind === 'stick') { const m = new THREE.Mesh(STICK_GEO, STICK_MAT); m.rotation.z = Math.PI / 2; m.position.x = -0.85; obj.add(m); }
+      else for (let i = 0; i < 9; i++) { const l = new THREE.Mesh(LINK_GEO, CHAIN_MAT); l.position.set(-0.15 - i * 0.2, -i * i * 0.012, 0); l.rotation.y = i % 2 ? Math.PI / 2 : 0; obj.add(l); }
+      b.mesh.lean.add(obj); r.melee = { kind, obj };
+    }
+    // in the right hand; it goes to the other hand for a swing on the left, and swings out with the punch
+    const o = r.melee.obj, swinging = b.swingT > 0 && b.swingKind === 'punch', side = swinging ? b.swingSide : 1, sw = swinging ? Math.sin((1 - b.swingT / 0.25) * Math.PI) : 0;
+    o.position.set(-0.42 * side, 1.18, 0.38); o.scale.x = side; o.rotation.set(0, side * (0.9 - sw * 1.5), kind === 'stick' ? side * (0.5 - sw * 0.5) : 0);
+  }
+
+  // ======================================================== Power Race: the powers from the crates
+  /** The nearest rider in front of r, within range and roughly in line (what the hook and the rocket aim at). */
+  riderAhead(r: Rider, range: number): Rider | null {
+    const b = r.bike, f = b.fwd; let best: Rider | null = null, bd = range;
+    for (const o of this.riders) {
+      if (o === r || this.eliminated.has(o) || o.finishedAt || o.bike.fall > 0) continue;   // not a rider who is already down
+      const dx = o.bike.x - b.x, dz = o.bike.z - b.z, fd = dx * f.x + dz * f.z, sd = Math.abs(dx * f.z - dz * f.x);
+      if (fd > 2 && fd < bd && sd < 6 + fd * 0.35) { bd = fd; best = o; }
+    }
+    return best;
+  }
+  private fxAdd<T extends THREE.Object3D>(o: T): T { scene.add(o); this.fxObjs.push(o); return o; }
+  private fxDel(o: THREE.Object3D) { scene.remove(o); const i = this.fxObjs.indexOf(o); if (i >= 0) this.fxObjs.splice(i, 1); }
+  /** Use the power a rider holds. Returns false when it could not be used now (it is kept). */
+  useWeapon(r: Rider): boolean {
+    const w = r.weapon, b = r.bike; if (!w || !this.weapons || this.phase !== 'go' || b.fall > 0 || r.remote) return false;
+    const f = b.fwd, me = r.isPlayer, ahead = 16 + Math.max(0, b.speed) * 0.5;
+    if (w === 'oil' || w === 'smoke') { const x = b.x - f.x * 3.5, z = b.z - f.z * 3.5; this.addPatch(w, x, z, r); if (this.mp) net.fx(w, x, z); if (me) sound.pad(); }
+    else if (w === 'bomb' || w === 'emp') { const x = b.x + f.x * ahead, z = b.z + f.z * ahead; this.addShot(w, r, x, z, null); if (this.mp) net.fx(w, x, z); if (me) sound.punch(); }
+    else if (w === 'hook' || w === 'rocket') {
+      const tg = this.riderAhead(r, w === 'hook' ? 60 : 110);
+      if (!tg) { if (me) toast('No rider in range ahead', 900, '#ffb36b'); return false; }
+      if (w === 'hook') this.hook(r, tg); else this.addShot('rocket', r, tg.bike.x, tg.bike.z, tg);
+      if (this.mp) net.fx(w, b.x, b.z, tg.netId ?? 0); if (me) sound.punch();
+    }
+    else if (w === 'warp') { if (!this.warp(r)) return false; if (me) sound.pad(); }
+    r.weapon = null; if (me) this.st.loot += 0; return true;
+  }
+  /** Oil or smoke left on the road. */
+  addPatch(kind: 'oil' | 'smoke', x: number, z: number, owner: Rider | null) {
+    let mesh: THREE.Object3D;
+    if (kind === 'oil') { const m = new THREE.Mesh(OIL_GEO, OIL_MAT); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.05, z); mesh = m; }
+    else { const g = new THREE.Group(); for (let i = 0; i < 9; i++) { const p = new THREE.Mesh(PUFF_GEO, SMOKE_MAT), a = i * 2.4, d = i === 0 ? 0 : 3 + (i % 3) * 1.6; p.position.set(Math.cos(a) * d, 2.2 + (i % 4) * 1.1, Math.sin(a) * d); p.scale.setScalar(1 + (i % 3) * 0.35); g.add(p); } g.position.set(x, 0, z); mesh = g; }
+    this.patches.push({ kind, x, z, born: this.t, until: this.t + (kind === 'oil' ? 14 : 10), owner, mesh: this.fxAdd(mesh) });
+  }
+  /** A bomb or an EMP bomb lobbed to a spot, or a rocket that follows a rider. */
+  addShot(kind: 'bomb' | 'emp' | 'rocket', owner: Rider | null, tx: number, tz: number, target: Rider | null) {
+    const mesh = this.fxAdd(new THREE.Mesh(SHOT_GEO, kind === 'emp' ? EMP_MAT : kind === 'rocket' ? ROCKET_MAT : BOMB_MAT));
+    const x0 = owner ? owner.bike.x : tx, z0 = owner ? owner.bike.z : tz; mesh.position.set(x0, 1.4, z0);
+    this.shots.push({ kind, x: x0, z: z0, x0, z0, tx, tz, t0: this.t, owner, target, mesh });
+  }
+  /** A flash that grows and fades (an explosion, an EMP wave, the two ends of a warp). */
+  private burst(x: number, z: number, radius: number, color: number, flat = false) {
+    const m = this.fxAdd(new THREE.Mesh(flat ? RING_GEO : BOOM_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide })));
+    if (flat) m.rotation.x = -Math.PI / 2; m.position.set(x, flat ? 0.3 : 1.5, z);
+    this.bursts.push({ mesh: m, born: this.t, life: flat ? 0.7 : 0.45, radius });
+  }
+  /** An explosion: knocks off the riders of this page that are close (other players' pages do the same for their own bike). */
+  blast(x: number, z: number, radius: number, owner: Rider | null) {
+    this.burst(x, z, radius, 0xff8a2a); const pb = this.player.bike;
+    if (Math.hypot(pb.x - x, pb.z - z) < 90) { sound.thump(16); if (Math.hypot(pb.x - x, pb.z - z) < 25) flash(); }
+    for (const r of this.riders) {
+      if (r === owner || r.remote || this.eliminated.has(r)) continue;
+      const dx = r.bike.x - x, dz = r.bike.z - z; if (Math.hypot(dx, dz) > radius) continue;
+      const res = r.bike.hit(2, (dx * -Math.cos(r.bike.h) + dz * Math.sin(r.bike.h)) >= 0 ? 1 : -1);
+      if (res === 'ignored') { if (r.isPlayer) toast('Shield blocked the blast!', 700, '#8affb0'); continue; }
+      if (owner) owner.ko = (owner.ko ?? 0) + 1;
+      if (r.isPlayer) { sound.fall(); toast(`${owner ? owner.name + "'s" : 'A'} blast knocked you off!`, 1500, '#ff8a8a'); if (this.mp && owner?.netId) net.ko(owner.netId); if (this.playerFell()) return; }
+      else if (owner?.isPlayer) { this.st.ko++; bump('ko', 1); toast(`${r.name} is down!`, 1300, '#8affb0'); }
+    }
+  }
+  /** An EMP wave: the engines of the riders of this page that are close cut out for a few seconds. */
+  empWave(x: number, z: number, owner: Rider | null) {
+    this.burst(x, z, 16, 0x4cf0ff, true); const pb = this.player.bike; if (Math.hypot(pb.x - x, pb.z - z) < 90) sound.thump(9);
+    let n = 0;
+    for (const r of this.riders) {
+      if (r === owner || this.eliminated.has(r) || Math.hypot(r.bike.x - x, r.bike.z - z) > 16) continue; n++;
+      if (r.remote || r.bike.shield > 0) continue;
+      r.bike.snag = 3.5; r.bike.speed *= 0.5; r.bike.turbo = 0; r.bike.boostLeft = 0;
+      if (r.isPlayer) toast('EMP! Your engine cut out', 1500, '#4cf0ff');
+    }
+    if (owner?.isPlayer) toast(n ? `EMP hit ${n} rider${n > 1 ? 's' : ''}!` : 'EMP missed', 1200, '#4cf0ff');
+  }
+  /** The hook: a rope to the rider ahead that drags them back and pulls the thrower forward. */
+  hook(from: Rider, to: Rider) {
+    const line = this.fxAdd(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), ROPE_MAT)); line.frustumCulled = false;
+    this.ropes.push({ line, a: from, b: to, until: this.t + 0.8 });
+    if (!to.remote) {
+      if (to.bike.shield > 0) { if (to.isPlayer || from.isPlayer) toast('Shield blocked the hook!', 700, '#8affb0'); return; }
+      to.bike.speed *= 0.3; to.bike.snag = 2.4;
+      if (to.isPlayer) { sound.punch(); toast(`${from.name} hooked you!`, 1400, '#ff8a8a'); }
+    }
+    if (!from.remote) { from.bike.speed = Math.min(from.bike.speed + 10, 60); if (from.isPlayer) toast(`Hooked ${to.name}!`, 1200, '#8affb0'); }
+  }
+  /** Warp: jump ahead along the road towards the next checkpoint (never past it). */
+  warp(r: Rider): boolean {
+    const b = r.bike, n = this.nextNode(r), dx = n.x - b.x, dz = n.z - b.z, d = Math.hypot(dx, dz);
+    if (d < 20) { if (r.isPlayer) toast('Too close to the turn to warp', 900, '#ffb36b'); return false; }
+    const jump = Math.min(48, d - 9); this.burst(b.x, b.z, 6, 0xb388ff, true);
+    b.x += dx / d * jump; b.z += dz / d * jump; b.h = Math.atan2(dx, dz); b.lat = 0; collideWorld(b, 0.8); b.syncMesh(0); this.burst(b.x, b.z, 6, 0xb388ff, true);
+    if (r.isPlayer) { toast('WARP!', 800, '#b388ff'); this.camH = b.h; this.updateCamera(1, true); for (const a of this.agents) if (a.kind !== 'ped' && Math.hypot(a.x - b.x, a.z - b.z) < 9) a.placeOnRoad(b, 90); }
+    return true;
+  }
+  /** Another player used a power (online). */
+  remoteFx(m: { id: number; k: string; x: number; z: number; to: number }) {
+    if (!this.weapons) return; const from = this.riders.find((r) => r.netId === m.id) ?? null, to = this.riders.find((r) => r.netId === m.to) ?? null;
+    if (m.k === 'oil' || m.k === 'smoke') this.addPatch(m.k, m.x, m.z, from);
+    else if (m.k === 'bomb' || m.k === 'emp') this.addShot(m.k, from, m.x, m.z, null);
+    else if (m.k === 'hook') { if (from && to) this.hook(from, to); }
+    else if (m.k === 'rocket') { if (to) this.addShot('rocket', from, to.bike.x, to.bike.z, to); }
+  }
+  /** Every frame of a Power Race: oil and smoke on the road, bombs and rockets in the air, the flashes, and the computer riders using what they hold. */
+  updateWeapons(dt: number) {
+    const t = this.t;
+    // oil and smoke
+    let inSmoke = false;
+    for (const p of this.patches.slice()) {
+      if (t > p.until) { this.fxDel(p.mesh); this.patches.splice(this.patches.indexOf(p), 1); continue; }
+      if (p.kind === 'smoke') { const k = Math.min(1, (t - p.born) / 0.8) * Math.min(1, (p.until - t) / 1.5); p.mesh.scale.setScalar(0.3 + 0.7 * k); p.mesh.rotation.y += dt * 0.15; }
+      for (const r of this.riders) {
+        if (r.remote || this.eliminated.has(r) || r.bike.fall > 0) continue;
+        const d = Math.hypot(r.bike.x - p.x, r.bike.z - p.z);
+        if (p.kind === 'oil') {
+          if (d > 2.5 || r.bike.slip > 0 || r.bike.inv > 0 || r.bike.shield > 0 || (p.owner === r && t - p.born < 1.5)) continue;
+          r.bike.slip = 1.2; r.bike.slipDir = Math.random() < 0.5 ? 1 : -1; if (r.isPlayer) { sound.thump(6); toast('Oil! You are sliding', 1200, '#ffb36b'); }
+        } else if (d < 8.5) { if (r.isPlayer) inSmoke = true; else if (p.owner !== r) r.bike.snag = Math.max(r.bike.snag, 0.25); }   // computer riders cannot see either: they slow right down
+      }
+    }
+    $('smoke').style.opacity = inSmoke ? '1' : '0';
+    // bombs, EMP bombs and rockets
+    for (const s of this.shots.slice()) {
+      let done = false;
+      if (s.kind === 'rocket') {
+        if (s.target && this.riders.includes(s.target)) { s.tx = s.target.bike.x; s.tz = s.target.bike.z; }
+        const dx = s.tx - s.x, dz = s.tz - s.z, d = Math.hypot(dx, dz), stepLen = 75 * dt;
+        if (d <= stepLen + 2.2 || t - s.t0 > 4) done = true; else { s.x += dx / d * stepLen; s.z += dz / d * stepLen; s.mesh.position.set(s.x, 1.4, s.z); }
+        if (done) this.blast(s.x, s.z, 4.5, s.owner);
+      } else {
+        const k = (t - s.t0) / 0.9; s.x = s.x0 + (s.tx - s.x0) * Math.min(1, k); s.z = s.z0 + (s.tz - s.z0) * Math.min(1, k);
+        s.mesh.position.set(s.x, 1.2 + Math.sin(Math.min(1, k) * Math.PI) * 4.5, s.z);
+        if (k >= 1) { done = true; if (s.kind === 'bomb') this.blast(s.tx, s.tz, 7, s.owner); else this.empWave(s.tx, s.tz, s.owner); }
+      }
+      if (done) { this.fxDel(s.mesh); const i = this.shots.indexOf(s); if (i >= 0) this.shots.splice(i, 1); }
+    }
+    for (const b of this.bursts.slice()) {
+      const k = (t - b.born) / b.life; if (k >= 1) { this.fxDel(b.mesh); this.bursts.splice(this.bursts.indexOf(b), 1); continue; }
+      b.mesh.scale.setScalar(0.2 + k * b.radius); (b.mesh.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - k);
+    }
+    for (const rp of this.ropes.slice()) {
+      if (t > rp.until) { this.fxDel(rp.line); this.ropes.splice(this.ropes.indexOf(rp), 1); continue; }
+      const pos = rp.line.geometry.attributes.position as THREE.BufferAttribute; pos.setXYZ(0, rp.a.bike.x, 1.3, rp.a.bike.z); pos.setXYZ(1, rp.b.bike.x, 1.3, rp.b.bike.z); pos.needsUpdate = true;
+    }
+    // computer riders use what they hold when it makes sense, and give up on it after a while
+    if (this.phase !== 'go') return;
+    for (const r of this.riders) {
+      const w = r.weapon; if (!w || r.isPlayer || r.remote || this.eliminated.has(r) || t < (r.useAt ?? 0)) continue;
+      const b = r.bike, f = b.fwd, held = t - (r.gotAt ?? t);
+      const near = (range: number, behind: boolean) => this.riders.some((o) => { if (o === r || this.eliminated.has(o)) return false; const dx = o.bike.x - b.x, dz = o.bike.z - b.z; return Math.hypot(dx, dz) < range && (dx * f.x + dz * f.z < 0) === behind; });
+      const go = w === 'oil' || w === 'smoke' ? near(35, true) || held > 9 : w === 'bomb' || w === 'emp' ? !!this.riderAhead(r, 40) : w === 'warp' ? true : true;
+      if (go && this.useWeapon(r)) continue;
+      if (held > 12) r.weapon = null; else r.useAt = t + 0.7;
+    }
+  }
+
   /** Online: the server counted a knock-off. */
   remoteKo(by: number) { const r = this.riders.find((x) => x.netId === by); if (r) r.ko = (r.ko ?? 0) + 1; }
   /** Online Knockout: the server put a rider out. */
@@ -283,6 +478,7 @@ class Game {
     for (const a of this.agents) scene.remove(a.mesh);
     for (const l of this.loots) scene.remove(l.mesh);
     for (const p of this.pads) scene.remove(p.mesh);
+    for (const o of this.fxObjs) scene.remove(o); this.fxObjs = []; $('smoke').style.opacity = '0';
     if (this.coinMesh) { scene.remove(this.coinMesh); this.coinMesh.dispose(); }
     if (this.guideChev) { scene.remove(this.guideChev); this.guideChev.dispose(); }
     if (this.guideSign) scene.remove(this.guideSign);
@@ -404,7 +600,7 @@ class Game {
       this.sendAcc += dt;
       if (this.sendAcc >= 0.066) {
         this.sendAcc = 0; const q = (v: number) => Math.round(v * 100) / 100;
-        net.state({ x: q(me.x), z: q(me.z), h: q(me.h), v: q(me.speed), l: q(me.lat), st: q(me.steerAngle), ln: q(me.leanAngle), f: me.fall > 0 ? 1 : 0, fd: me.fallDir, pw: (me.turbo > 0 ? 1 : 0) | (me.shield > 0 ? 2 : 0) | (me.power > 0 ? 4 : 0), p: this.player.passed, pr: Math.round(this.progress(this.player)), sw: me.swingT > 0 ? (me.swingKind === 'punch' ? (me.swingSide === 1 ? 1 : 2) : (me.swingSide === 1 ? 3 : 4)) : 0 });
+        net.state({ x: q(me.x), z: q(me.z), h: q(me.h), v: q(me.speed), l: q(me.lat), st: q(me.steerAngle), ln: q(me.leanAngle), f: me.fall > 0 ? 1 : 0, fd: me.fallDir, pw: (me.turbo > 0 ? 1 : 0) | (me.shield > 0 ? 2 : 0) | (me.power > 0 ? 4 : 0) | (me.stick > 0 ? 8 : 0) | (me.chain > 0 ? 16 : 0), p: this.player.passed, pr: Math.round(this.progress(this.player)), sw: me.swingT > 0 ? (me.swingKind === 'punch' ? (me.swingSide === 1 ? 1 : 2) : (me.swingSide === 1 ? 3 : 4)) : 0 });
       }
     }
 
@@ -432,6 +628,8 @@ class Game {
       if (closest < 5 && me.speed < 12 && chasers > 0) { this.bust += dt; if (this.bust > this.D.police.bust) this.busted(); } else this.bust = Math.max(0, this.bust - dt);
     }
     this.collideAgents(dt);
+    if (this.weapons) this.updateWeapons(dt);
+    for (const r of this.riders) this.syncMelee(r);
     if (this.player.bike.fall <= 0) this.collectCoins();
     this.spinCoins(); if (this.routed) this.updateGuide(this.t);
     for (const l of this.loots) {
@@ -495,18 +693,19 @@ class Game {
     const b = a.bike;
     if (b.fall > 0 || (this.phase === 'count') || (kind === 'punch' ? b.punchCd > 0 : b.kickCd > 0)) return false;
     const fx = b.fwd.x, fz = b.fwd.z, rx = -Math.cos(b.h), rz = Math.sin(b.h);
-    const reach = (kind === 'kick' ? 3 : 2.6) + (b.power > 0 ? 1 : 0);
+    const armed = kind === 'punch' && (b.stick > 0 || b.chain > 0);   // a stick or a chain in the hand: it reaches further and one hit is enough
+    const reach = armed ? (b.chain > 0 ? 5.5 : 3.8) : (kind === 'kick' ? 3 : 2.6) + (b.power > 0 ? 1 : 0), along = armed ? 3.4 : 2.4;
     let best: Rider | null = null, bd = 99, bs: 1 | -1 = 1;
     for (const o of this.riders) {
       if (o === a || o.bike.fall > 0 || this.eliminated.has(o)) continue;
       const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * fx + dz * fz, r = dx * rx + dz * rz;
-      if (Math.abs(f) > 2.4 || Math.abs(r) > reach || Math.abs(r) < 0.1) continue;
+      if (Math.abs(f) > along || Math.abs(r) > reach || Math.abs(r) < 0.1) continue;
       const sd: 1 | -1 = r > 0 ? 1 : -1; if (side && sd !== side) continue;
       const d = Math.hypot(dx, dz); if (d < bd) { bd = d; best = o; bs = sd; }
     }
     b.swing(kind, side ?? bs);
     if (!best) return false;
-    this.knock(a, best, b.power > 0 ? 2 : kind === 'kick' ? 0.5 : 0.3, kind, bs);
+    this.knock(a, best, armed || b.power > 0 ? 2 : kind === 'kick' ? 0.5 : 0.3, kind, bs);
     return true;
   }
   /** Apply a hit from one rider to another and tell the player what happened. */
@@ -544,14 +743,15 @@ class Game {
     for (const o of this.riders) {
       if (o === r || o.bike.fall > 0 || this.eliminated.has(o)) continue;
       const dx = o.bike.x - b.x, dz = o.bike.z - b.z, f = dx * b.fwd.x + dz * b.fwd.z, rr = dx * -Math.cos(b.h) + dz * Math.sin(b.h);
-      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < 2.4) { this.attack(r, Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, this.mode === 'brawl' ? rnd(0.6, 1.4) : rnd(this.D.aiGap[0], this.D.aiGap[1])); return; }
+      const arm = r.bike.chain > 0 ? 5.2 : r.bike.stick > 0 ? 3.6 : 2.4;   // with a stick or a chain they swing from further away
+      if (Math.abs(f) < 2 && Math.abs(rr) > 0.4 && Math.abs(rr) < arm) { this.attack(r, arm === 2.4 && Math.random() < 0.35 ? 'kick' : 'punch', rr > 0 ? 1 : -1); this.aiCd.set(r, this.mode === 'brawl' ? rnd(0.6, 1.4) : rnd(this.D.aiGap[0], this.D.aiGap[1])); return; }
     }
     this.aiCd.set(r, 0.2);
   }
 
   placeLoot() {
     const rnd2 = (lo: number, hi: number) => lo + this.rand() * (hi - lo);
-    const types: LootType[] = ['nitro', 'turbo', 'shield', 'power'];
+    const types: LootType[] = this.weapons ? [...WEAPONS, 'stick', 'chain'] : this.mode === 'brawl' ? ['nitro', 'turbo', 'shield', 'power', 'stick', 'chain'] : ['nitro', 'turbo', 'shield', 'power'];
     const crate = (x: number, z: number) => {
       const g = new THREE.Group(), type = types[(this.rand() * types.length) | 0];
       const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), lootMat(type)); g.add(box);
@@ -659,7 +859,8 @@ class Game {
       const l = this.loots[li];
       if (l.cd > 0) continue;
       if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
-        b.grant(l.type); l.cd = 14; l.mesh.visible = false; if (r.isPlayer) { this.st.loot++; bump('crates', 1); if (this.mp) net.loot(li); }
+        const ty = l.type; if (isWeapon(ty)) { r.weapon = ty; r.gotAt = this.t; r.useAt = this.t + rnd(1.5, 4); } else b.grant(ty);
+        l.cd = this.weapons ? 9 : 14; l.mesh.visible = false; if (r.isPlayer) { this.st.loot++; bump('crates', 1); if (this.mp) net.loot(li); }
         if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.loot(); }
       }
     }
@@ -712,8 +913,8 @@ class Game {
     if (this.mode === 'trial') { this.finishTrial(); return; }
     const rk = this.rank(), t = this.raceT;
     bump('finish', 1); if (rk === 1 && this.riders.length > 1) bump('win', 1);
-    const best = loadBest(); let isBest = false, earned = '';
-    if (!best || t < best) { saveBest(t); isBest = true; }
+    const bkey = this.weapons ? 'power.' + opt.map : opt.map, best = loadBest(bkey); let isBest = false, earned = '';   // Power Race times are kept apart from race times
+    if (!best || t < best) { saveBest(t, bkey); isBest = true; }
     if (!this.resultDone) { this.resultDone = true; const rr = recordRace({ map: opt.map, bike: opt.bike, pos: rk, of: this.riders.length, time: t, dnf: false, diff: this.mp ? undefined : opt.diff }, this.D.reward); earned = `+${rr.coins} coins  +${rr.xp} XP${rr.levelUp ? '  LEVEL UP!' : ''}`; }
     if (this.mp) net.fin(t);
     // the standings: those who have finished by their time, the rest by how far along they are
@@ -871,7 +1072,11 @@ class Game {
     if (b.turbo > 0) ps.push(`<span style="color:${LOOT.turbo.color}">SUPER SPEED ${Math.ceil(b.turbo)}s</span>`);
     if (b.shield > 0) ps.push(`<span style="color:${LOOT.shield.color}">SHIELD ${Math.ceil(b.shield)}s</span>`);
     if (b.power > 0) ps.push(`<span style="color:${LOOT.power.color}">POWER HITS ${Math.ceil(b.power)}s</span>`);
+    if (b.stick > 0) ps.push(`<span style="color:${LOOT.stick.color}">STICK ${Math.ceil(b.stick)}s: Q / E</span>`);
+    if (b.chain > 0) ps.push(`<span style="color:${LOOT.chain.color}">CHAIN ${Math.ceil(b.chain)}s: Q / E</span>`);
     if (b.padT > 0) ps.push('<span style="color:#ffb21a">BOOST PAD</span>');
+    const wp = this.player.weapon; if (wp) ps.push(`<span style="color:${LOOT[wp].color}">${LOOT[wp].name}: press G</span>`);
+    if (b.snag > 0) ps.push('<span style="color:#4cf0ff">SLOWED</span>');
     $('powers').innerHTML = ps.join('<br>');
     const stars = Math.ceil(this.heat);
     $('heat').innerHTML = this.police && stars > 0 ? `<span style="color:#ff5a5a">${'★'.repeat(stars)}</span><span style="color:#555">${'★'.repeat(5 - stars)}</span><small>${this.bust > 0 ? 'Being arrested...' : 'Wanted: get away!'}</small>` : '';
@@ -983,6 +1188,7 @@ net.h.left = (id) => game?.removeRider(id);
 net.h.ko = (by) => game?.remoteKo(by);
 net.h.out = (id) => game?.remoteOut(id);
 net.h.coin = (id, i) => game?.remoteCoin(id, i);
+net.h.fx = (m) => game?.remoteFx(m);
 net.h.kicked = (ban) => { if (game?.mp) { $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); setTab('online', true); } toast(ban ? 'The host banned you from the room' : 'The host removed you from the room', 2800, '#ff8a8a'); };
 // chat during an online race: T or Enter opens a one-line box; messages show at the left for a few seconds
 const rchatIn = $('rchatin') as HTMLInputElement;
@@ -1001,7 +1207,7 @@ net.h.raceChat = (c) => {
 };
 net.h.closed = () => { if (game?.mp) { toast('Disconnected from the server', 2500, '#ff8a8a'); $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); } };
 net.h.results = (list: ResultRow[], mode: string) => {
-  if (!game?.mp) return; const me = game.player.netId;
+  if (!game?.mp) return; const me = game.player.netId; if (mode === 'power') mode = 'race';   // a Power Race ends like a race
   let note = '';
   if (mode !== 'race') {                                       // Brawl and Knockout end here, for everyone at once
     const top = list[0], win = mode === 'escape' ? (list.find((r) => r.id === me)?.score ?? 0) >= ESCAPE_SECONDS : top?.id === me && (mode === 'knockout' || ((top.score ?? 0) > 0 && (top.score ?? 0) > (list[1]?.score ?? 0)));   // a tied or empty brawl has no winner

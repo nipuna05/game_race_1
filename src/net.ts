@@ -17,7 +17,8 @@ export interface NetHandlers {
   results?: (list: ResultRow[], mode: string) => void;
   ko?: (by: number, to: number) => void;                                         // a knock-off counted by the server
   out?: (id: number) => void;
-  coin?: (id: number, i: number) => void;                                        // Coin Rush: a player got a coin                                                    // Knockout: this rider is out
+  coin?: (id: number, i: number) => void;
+  fx?: (m: Extract<S2C, { t: 'fx' }>) => void;                                    // Power Race: another player used a power                                        // Coin Rush: a player got a coin                                                    // Knockout: this rider is out
   left?: (id: number) => void;
   closed?: () => void;
 }
@@ -84,6 +85,7 @@ export const net = {
   hit(to: number, mag: number, shove: number, how: 'punch' | 'kick' | 'rear') { this.send({ t: 'hit', to, mag, shove, how }); },
   loot(i: number) { this.send({ t: 'loot', i }); },
   ko(by: number) { this.send({ t: 'ko', by }); },
+  fx(k: string, x: number, z: number, to = 0) { this.send({ t: 'fx', k, x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, to }); },
   coin(i: number) { this.send({ t: 'coin', i }); },
   done() { this.send({ t: 'done' }); },
   fin(time: number) { this.send({ t: 'fin', time }); },
@@ -104,6 +106,7 @@ export const net = {
       case 'ko': this.h.ko?.(m.by, m.to); break;
       case 'out': this.h.out?.(m.id); break;
       case 'coin': this.h.coin?.(m.id, m.i); break;
+      case 'fx': this.h.fx?.(m); break;
       case 'left': this.h.left?.(m.id); break;
       case 'kicked': this.lobby = null; this.error = m.ban ? 'The host banned you from that room.' : 'The host removed you from that room.'; this.h.kicked?.(m.ban); this.h.lobby?.(); break;
     }

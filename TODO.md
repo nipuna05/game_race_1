@@ -25,6 +25,8 @@
 - Online: kick and ban for hosts, chat during a race (T)
 - Online game types: Brawl, Knockout, Coin Rush, Checkpoint Rush and Police Escape (the server keeps the clock and the score); Quick Match
 
+- Garage upgrades: five stats per bike, three levels each, bought with coins
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
 - shared (synced) traffic if players ask for it
@@ -32,7 +34,7 @@
 - Better bike and rider models (real GLB assets, with licence recorded)
 - More maps (rain, suburbs, off-road shortcuts)
 - Ramps, jumps and shortcuts in races
-- Bike garage: upgrades and bike unlocks
+- Bike garage: more bike unlocks
 - Repair-kit crate (earn a respawn back), visible bike damage (smoke, sparks)
 - Load real GLB bike models (when a licensed model is available)
 - Mobile controls (deferred)

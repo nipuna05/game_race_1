@@ -2,7 +2,7 @@ import { MAPS, clamp, type MapDef } from './city';
 import { BIKES, setSteer, type BikeDef } from './bike';
 import type { Sound } from './audio';
 import { net, defaultServer } from './net';
-import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike, loginInfo, claimLogin, claimDaily, claimDailyBonus, dailyBonusReady, claimSetTask, claimSetReward, hasClaimable, dailyList, setList, setStatus, msToReset, SETS, LOGIN_REWARDS } from './profile';
+import { profile, onProfile, levelInfo, titleOf, setName, resetProfile, favouriteBike, owns, buyBike, upLevel, upCost, buyUpgrade, UP_MAX, UP_STEP, loginInfo, claimLogin, claimDaily, claimDailyBonus, dailyBonusReady, claimSetTask, claimSetReward, hasClaimable, dailyList, setList, setStatus, msToReset, SETS, LOGIN_REWARDS } from './profile';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QS = new URLSearchParams(location.search);
@@ -90,6 +90,12 @@ export function setTab(t: Tab, quiet = false) {
 
 const seg = (key: string, label: string, vals: [string, string][]) =>
   `<div class="row"><span>${label}</span><div class="seg" data-k="${key}">${vals.map(([v, n]) => `<button data-v="${v}" class="${opt[key] === v ? 'on' : ''}">${n}</button>`).join('')}</div></div>`;
+/** A stat bar of a bike you own: the bar includes your upgrades, and the button buys the next level. */
+const upBar = (label: string, i: number, b: BikeDef, v: number, lo: number, hi: number) => {
+  const lv = upLevel(b.id, i), cost = upCost(b.price, lv), w = Math.round(clamp((v * (1 + UP_STEP * lv) - lo) / (hi - lo), 0.06, 1) * 100);
+  const btn = lv >= UP_MAX ? '<em class="max">MAX</em>' : `<button class="upb" data-up="${i}" ${profile.coins >= cost ? '' : 'disabled'} title="Upgrade ${label} to level ${lv + 1} of ${UP_MAX} (+${Math.round(UP_STEP * 100)}%)${profile.coins >= cost ? '' : ': you need ' + (cost - profile.coins).toLocaleString() + ' more coins'}">${'&#9679;'.repeat(lv)}${'&#9675;'.repeat(UP_MAX - lv)} <i class="coin"></i>${cost.toLocaleString()}</button>`;
+  return `<div class="stat up"><span>${label}</span><i class="${lv ? 'tuned' : ''}"><u style="width:${w}%"></u></i>${btn}</div>`;
+};
 const bar = (label: string, v: number, lo: number, hi: number) => `<div class="stat"><span>${label}</span><i><u style="width:${Math.round(clamp((v - lo) / (hi - lo), 0.06, 1) * 100)}%"></u></i></div>`;
 
 /** A little skyline picture for a map, drawn from its own colours. */
@@ -159,9 +165,9 @@ function render() {
     h = `<h2>Garage <span class="cnt"><i class="coin"></i> ${profile.coins.toLocaleString()} &middot; collection ${ownedN}/${BIKES.length}</span></h2>
       <div class="pbody">
       <div class="cards bikes">${BIKES.map((x) => `<div class="card ${x.id === b.id ? 'on' : ''} ${owns(x.id) ? '' : 'locked'}" data-bike="${x.id}"><b>${x.name}</b><em>${owns(x.id) ? (x.id === opt.bike ? 'RIDING' : x.cc + 'cc') : '&#128274; ' + x.price.toLocaleString()}</em></div>`).join('')}</div>
-      <h3>${b.name} &middot; ${b.category} &middot; ${b.cc} cc</h3>
+      <h3>${b.name} &middot; ${b.category} &middot; ${b.cc} cc${have ? ` &middot; upgrades ${[0, 1, 2, 3, 4].reduce((s, i) => s + upLevel(b.id, i), 0)}/${UP_MAX * 5}` : ''}</h3>
       <div class="desc" style="margin-bottom:6px">${b.desc}</div>
-      <div class="statgrid">${bar('Speed', b.top, 0.6, 1.4)}${bar('Pickup', b.accel, 0.6, 1.35)}${bar('Handling', b.turn, 0.65, 1.5)}${bar('Braking', b.brake, 0.8, 1.35)}${bar('Boost', b.boost, 0.5, 1.6)}</div>
+      <div class="statgrid">${([['Speed', b.top, 0.6, 1.4], ['Pickup', b.accel, 0.6, 1.35], ['Handling', b.turn, 0.65, 1.5], ['Braking', b.brake, 0.8, 1.35], ['Boost', b.boost, 0.5, 1.6]] as [string, number, number, number][]).map(([l, v, lo, hi], i) => have ? upBar(l, i, b, v, lo, hi) : bar(l, v, lo, hi)).join('')}</div>
       <div class="row" style="margin:10px 0 0"><span>Colour</span><div class="swatches">${COLORS.map((c) => `<div class="sw ${opt.color === c ? 'on' : ''}" data-color="${c}" style="background:${c || `linear-gradient(135deg, #ffd24a 50%, #e74c3c 50%)`}" title="${c ? c : 'Bike\'s own colour'}"></div>`).join('')}</div></div>
       </div>
       <div class="pfoot">${have ? (b.id === opt.bike ? '<div class="owned" style="text-align:center">&#10003; Your bike</div>' : `<button class="go small" data-use="${b.id}">RIDE THIS BIKE</button>`) : `<button class="go small buy" data-buy="${b.id}" ${profile.coins >= b.price ? '' : 'disabled'}>BUY &middot; <i class="coin"></i> ${b.price.toLocaleString()}${profile.coins >= b.price ? '' : ` (need ${(b.price - profile.coins).toLocaleString()} more)`}</button>`}</div>`;
@@ -253,6 +259,7 @@ function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLElement>('[data-bike]').forEach((c) => c.addEventListener('click', () => { viewId = c.dataset.bike!; if (owns(viewId)) { opt.bike = viewId; save(); sound.setBike(bikeDef().cc); syncMe(); } render(); hooks.preview(); }));
   p.querySelectorAll<HTMLElement>('[data-use]').forEach((c) => c.addEventListener('click', () => { opt.bike = c.dataset.use!; viewId = opt.bike; save(); sound.setBike(bikeDef().cc); syncMe(); render(); hooks.preview(); }));
   p.querySelectorAll<HTMLElement>('[data-buy]').forEach((c) => c.addEventListener('click', () => { const b = BIKES.find((x) => x.id === c.dataset.buy)!; if (buyBike(b.id, b.price)) { opt.bike = b.id; viewId = b.id; save(); sound.loot(); syncMe(); render(); hooks.preview(); } }));
+  p.querySelectorAll<HTMLElement>('[data-up]').forEach((c) => c.addEventListener('click', () => { const b = previewDef(); if (buyUpgrade(b.id, Number(c.dataset.up), b.price)) { sound.loot(); render(); } }));
   p.querySelectorAll<HTMLElement>('[data-color]').forEach((c) => c.addEventListener('click', () => { opt.color = c.dataset.color!; save(); syncMe(); render(); hooks.preview(); }));
   p.querySelectorAll<HTMLElement>('[data-map]').forEach((c) => c.addEventListener('click', () => { opt.map = c.dataset.map!; save(); render(); hooks.mapChanged(); }));
   p.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((r) => r.addEventListener('input', () => { const k = r.dataset.vol as 'master' | 'music' | 'sfx'; sound.setVol(k, Number(r.value) / 100); $('v-' + k).textContent = `${r.value}%`; }));

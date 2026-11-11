@@ -7,12 +7,16 @@ export interface Profile {
   races: number; wins: number; podiums: number; dnf: number;
   distanceKm: number; playSec: number; topKmh: number;
   knockdowns: number; fallen: number; wrecks: number; busted: number; pedHits: number; loot: number;
-  bikeUse: Record<string, number>; history: RaceResult[]; best: Record<string, number>; daily: Daily; sets: Record<string, SetState>;   // best: records of the game types (checkpoints, seconds, coins, knock-offs)
+  bikeUse: Record<string, number>; history: RaceResult[]; best: Record<string, number>; daily: Daily; sets: Record<string, SetState>; ups: Record<string, number[]>;   // best: records of the game types (checkpoints, seconds, coins, knock-offs)
 }
 export interface RunStats { dist: number; top: number; ko: number; fell: number; wrecks: number; busted: number; ped: number; loot: number; coins: number; sec: number }
+// (defined up here because the saved profile is read while this file loads)
+/** The five things a bike can be upgraded in (the same five as its stat bars), up to UP_MAX levels each; a level adds UP_STEP (4%). */
+export const UP_STATS = ['top', 'accel', 'turn', 'brake', 'boost'] as const;
+export const UP_MAX = 3, UP_STEP = 0.04;
 export const STARTERS = ['scooter', 'street'];
 
-const blank = (): Profile => ({ name: 'Rider', xp: 0, coins: 0, owned: [...STARTERS], races: 0, wins: 0, podiums: 0, dnf: 0, distanceKm: 0, playSec: 0, topKmh: 0, knockdowns: 0, fallen: 0, wrecks: 0, busted: 0, pedHits: 0, loot: 0, bikeUse: {}, history: [], best: {}, daily: { day: '', last: '', streak: 0, claimed: false, tasks: [], bonus: false }, sets: {} });
+const blank = (): Profile => ({ name: 'Rider', xp: 0, coins: 0, owned: [...STARTERS], races: 0, wins: 0, podiums: 0, dnf: 0, distanceKm: 0, playSec: 0, topKmh: 0, knockdowns: 0, fallen: 0, wrecks: 0, busted: 0, pedHits: 0, loot: 0, bikeUse: {}, history: [], best: {}, daily: { day: '', last: '', streak: 0, claimed: false, tasks: [], bonus: false }, sets: {}, ups: {} });
 const num = (v: unknown) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : 0);
 
 function load(): Profile {
@@ -26,6 +30,7 @@ function load(): Profile {
     if (o.bikeUse && typeof o.bikeUse === 'object') for (const [k, v] of Object.entries(o.bikeUse)) p.bikeUse[String(k).slice(0, 16)] = num(v);
     if (o.best && typeof o.best === 'object') for (const [k, v] of Object.entries(o.best).slice(0, 40)) p.best[String(k).slice(0, 24)] = num(v);
     p.daily = readDaily(o.daily); p.sets = readSets(o.sets);
+    if (o.ups && typeof o.ups === 'object') for (const [k, v] of Object.entries(o.ups).slice(0, 20)) if (Array.isArray(v)) p.ups[String(k).slice(0, 16)] = UP_STATS.map((_, i) => Math.min(UP_MAX, Math.round(num(v[i]))));
     if (Array.isArray(o.history)) p.history = o.history.slice(0, 10).filter((h: RaceResult) => h && typeof h.map === 'string').map((h: RaceResult) => ({ t: num(h.t), map: String(h.map).slice(0, 16), bike: String(h.bike).slice(0, 16), pos: num(h.pos), of: num(h.of), time: num(h.time), dnf: !!h.dnf, diff: typeof h.diff === 'string' ? h.diff.slice(0, 8) : undefined }));
   } catch { /* a fresh profile */ }
   return p;
@@ -110,6 +115,20 @@ export function recordRun(s: RunStats, bike: string, mult = 1): { xp: number; co
 }
 
 export const owns = (id: string) => profile.owned.includes(id);
+
+// ======================================================== bike upgrades
+export const upLevel = (bike: string, i: number) => profile.ups[bike]?.[i] ?? 0;
+/** What the next level costs: dearer bikes and higher levels cost more (the Street: 300, 600, 900). */
+export const upCost = (price: number, level: number) => Math.round(Math.max(300, price * 0.15) * (level + 1) / 50) * 50;
+export function buyUpgrade(bike: string, i: number, price: number): boolean {
+  const lv = upLevel(bike, i), cost = upCost(price, lv);
+  if (!owns(bike) || i < 0 || i >= UP_STATS.length || lv >= UP_MAX || profile.coins < cost) return false;
+  profile.coins -= cost; (profile.ups[bike] ??= UP_STATS.map(() => 0))[i] = lv + 1; changed(); return true;
+}
+/** A bike's numbers with the player's upgrades on top (only the player's own bike gets them). */
+export function tuned<T extends { id: string } & Record<(typeof UP_STATS)[number], number>>(d: T): T {
+  const out = { ...d }; UP_STATS.forEach((k, i) => { (out as Record<string, unknown>)[k] = d[k] * (1 + UP_STEP * upLevel(d.id, i)); }); return out;
+}
 /** Buy a bike with coins. Returns false when it is already owned or there are not enough coins. */
 export function buyBike(id: string, price: number): boolean { if (owns(id) || profile.coins < price) return false; profile.coins -= price; profile.owned.push(id); changed(); return true; }
 

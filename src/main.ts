@@ -4,7 +4,7 @@ import { Agent } from './agents';
 import { Bike, aiInput, MAX_SPEED, BIKES, type Input } from './bike';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Sound } from './audio';
-import { profile, recordRace, recordRun, grant, recordBest, owns, bump, setTaskListener, type RunStats } from './profile';
+import { profile, recordRace, recordRun, grant, recordBest, owns, bump, tuned, setTaskListener, type RunStats } from './profile';
 import { net } from './net';
 import { makeVehicle } from './vehicles';
 import { preloadModels, onModels } from './models';
@@ -169,8 +169,8 @@ class Game {
         case 'coins': this.modeT = 100; break;
       }
     }
-    const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];
-    this.player = { bike: new Bike(bikeColor(), mine), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
+    const mine = BIKES.find((b) => b.id === opt.bike) ?? BIKES[0];   // the player's bike gets their Garage upgrades (tuned); computer riders ride the standard one
+    this.player = { bike: new Bike(bikeColor(), tuned(mine)), passed: 0, finishedAt: 0, name: profile.name, lane: 0, isPlayer: true };
     scene.add(this.player.bike.mesh.root); this.riders.push(this.player);
     if (this.mp) this.setupRemotes(this.mp);
     else if (this.rivalN > 0) {

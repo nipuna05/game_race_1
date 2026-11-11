@@ -52,6 +52,7 @@ addEventListener('keydown', (e) => {
   if (ui === 'play' && game && !e.repeat) {
     if (e.code === 'KeyQ') game.attack(game.player, 'punch', -1); else if (e.code === 'KeyE') game.attack(game.player, 'punch', 1); else if (e.code === 'KeyF') game.attack(game.player, 'kick');
   }
+  if ((e.code === 'KeyT' || e.code === 'Enter' || e.code === 'NumpadEnter') && ui === 'play' && game?.mp && !e.repeat) { e.preventDefault(); openRaceChat(); return; }
   if (e.code === 'KeyH' && ui === 'play' && !e.repeat) showTips();
   if (e.code === 'KeyM' && ui === 'play' && !e.repeat) bigMap = !bigMap;
   if (e.code === 'Escape') { if (ui === 'play') setPause(true); else if (ui === 'pause') setPause(false); }
@@ -935,6 +936,22 @@ net.h.hit = (m) => game?.receiveHit(m);
 net.h.loot = (m) => game?.remoteLoot(m.i);
 net.h.fin = (m) => { const r = game?.riders.find((x) => x.netId === m.id); if (r) { r.finishedAt = m.time; if (!r.isPlayer) toast(`${r.name} finished`, 1500, '#ffd24a'); } };
 net.h.left = (id) => game?.removeRider(id);
+net.h.kicked = (ban) => { if (game?.mp) { $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); setTab('online', true); } toast(ban ? 'The host banned you from the room' : 'The host removed you from the room', 2800, '#ff8a8a'); };
+// chat during an online race: T or Enter opens a one-line box; messages show at the left for a few seconds
+const rchatIn = $('rchatin') as HTMLInputElement;
+function openRaceChat() { keys.clear(); rchatIn.value = ''; rchatIn.classList.add('on'); rchatIn.focus(); }
+function closeRaceChat() { rchatIn.classList.remove('on'); rchatIn.blur(); }
+rchatIn.addEventListener('keydown', (e) => {
+  e.stopPropagation();                                         // typing must not steer the bike
+  if (e.key === 'Enter') { if (rchatIn.value.trim()) net.chat(rchatIn.value); closeRaceChat(); } else if (e.key === 'Escape') closeRaceChat();
+});
+rchatIn.addEventListener('blur', () => rchatIn.classList.remove('on'));
+net.h.raceChat = (c) => {
+  if (ui === 'home' || !game?.mp) return;
+  const log = $('rchatlog'), d = document.createElement('div'), b = document.createElement('b');
+  b.textContent = c.name; d.append(b, c.text); log.appendChild(d); while (log.children.length > 5) log.firstChild!.remove();
+  window.setTimeout(() => d.remove(), 9000);
+};
 net.h.closed = () => { if (game?.mp) { toast('Disconnected from the server', 2500, '#ff8a8a'); $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); } };
 net.h.results = (list: ResultRow[]) => {
   if (!game?.mp) return; const me = game.player.netId;

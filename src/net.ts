@@ -6,6 +6,8 @@ export interface Lobby { code: string; you: number; host: number; players: Playe
 export interface NetHandlers {
   rooms?: () => void;                                                            // the list of open rooms arrived
   chat?: (m: { id: number; name: string; text: string }) => void;
+  raceChat?: (m: { id: number; name: string; text: string }) => void;             // the same message, for the line shown during a race
+  kicked?: (ban: boolean) => void;                                               // the host removed you from the room
   lobby?: () => void;                                                            // the room changed (players, settings, host)
   start?: (m: Extract<S2C, { t: 'start' }>) => void;
   state?: (m: Extract<S2C, { t: 's' }>) => void;
@@ -25,6 +27,12 @@ export const defaultServer = () => {
   try { const s = localStorage.getItem(URL_KEY); if (s) return s; } catch { /* ignore */ }
   if (location.protocol === 'https:' && PUBLIC_SERVER) return PUBLIC_SERVER;
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:8090`;
+};
+
+/** A random id kept by this browser: the server uses it so a ban from a room holds when you try to rejoin. */
+const clientId = () => {
+  const K = 'bikerace.cid.v1';
+  try { let c = localStorage.getItem(K); if (!c) { c = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem(K, c); } return c; } catch { return ''; }
 };
 
 export const net = {
@@ -62,10 +70,11 @@ export const net = {
   send(m: C2S) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m)); },
   close() { if (this.ws) { try { this.send({ t: 'leave' }); this.ws.close(); } catch { /* ignore */ } } this.ws = null; this.lobby = null; this.status = 'off'; },
 
-  create(name: string, bike: string, color: string, pub = true) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color, pub }); },
-  join(code: string, name: string, bike: string, color: string) { this.send({ t: 'join', ver: PROTOCOL_VERSION, code, name, bike, color }); },
+  create(name: string, bike: string, color: string, pub = true) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color, pub, cid: clientId() }); },
+  join(code: string, name: string, bike: string, color: string) { this.send({ t: 'join', ver: PROTOCOL_VERSION, code, name, bike, color, cid: clientId() }); },
   me(name: string, bike: string, color: string) { if (this.lobby) this.send({ t: 'me', name, bike, color }); },
   settings(map: string, laps: number, pub?: boolean, police?: boolean, traffic?: number) { this.send({ t: 'settings', map, laps, pub, police, traffic }); },
+  kick(id: number, ban = false) { this.send({ t: 'kick', id, ban }); },
   start() { this.send({ t: 'start' }); },
   state(s: RiderState) { this.send({ t: 's', ...s }); },
   hit(to: number, mag: number, shove: number, how: 'punch' | 'kick' | 'rear') { this.send({ t: 'hit', to, mag, shove, how }); },
@@ -76,7 +85,7 @@ export const net = {
   onMsg(m: S2C) {
     switch (m.t) {
       case 'rooms': this.rooms = m.rooms; this.h.rooms?.(); break;
-      case 'chat': this.chatLog.push({ id: m.id, name: m.name, text: m.text }); if (this.chatLog.length > 40) this.chatLog.shift(); this.h.chat?.(m); break;
+      case 'chat': this.chatLog.push({ id: m.id, name: m.name, text: m.text }); if (this.chatLog.length > 40) this.chatLog.shift(); this.h.chat?.(m); this.h.raceChat?.(m); break;
       case 'room': if (!this.lobby) this.chatLog = []; this.lobby = { code: m.code, you: m.you, host: m.host, players: m.players, settings: m.settings, status: m.status, pub: m.pub }; this.error = ''; this.h.lobby?.(); break;
       case 'err': this.error = m.msg; this.h.lobby?.(); break;
       case 'start': this.h.start?.(m); break;
@@ -86,6 +95,7 @@ export const net = {
       case 'fin': this.h.fin?.(m); break;
       case 'results': this.h.results?.(m.list); break;
       case 'left': this.h.left?.(m.id); break;
+      case 'kicked': this.lobby = null; this.error = m.ban ? 'The host banned you from that room.' : 'The host removed you from that room.'; this.h.kicked?.(m.ban); this.h.lobby?.(); break;
     }
   },
 };

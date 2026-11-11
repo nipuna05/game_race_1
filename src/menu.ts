@@ -135,7 +135,7 @@ function render() {
       const host = net.isHost, st = L.settings;
       h = `<h2>Room <span class="code">${L.code}</span></h2>
         <div class="desc">${L.pub ? 'Public room' : 'Private room: share the code'} &middot; ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
-        <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}</small></div>`).join('')}</div>
+        <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}${host && p.id !== L.you ? `<button class="kb" data-kick="${p.id}" title="Remove this player from the room">Kick</button><button class="kb ban" data-ban="${p.id}" title="Remove this player and stop them rejoining">Ban</button>` : ''}</small></div>`).join('')}</div>
         ${host ? `<h3>Race settings</h3>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
           <div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
@@ -265,6 +265,8 @@ function bind(p: HTMLElement) {
   p.querySelectorAll<HTMLInputElement>('.txt').forEach((i) => { i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { if (i.id === 'code') doJoin(); else if (i.id === 'chatin' && i.value.trim()) { net.chat(i.value); i.value = ''; } } }); });
   p.querySelector('#mpmap')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(b.dataset.v!, net.lobby.settings.laps); });
   p.querySelector('#mplaps')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, Number(b.dataset.v)); });
+  p.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) => b.addEventListener('click', () => net.kick(Number(b.dataset.kick))));
+  p.querySelectorAll<HTMLElement>('[data-ban]').forEach((b) => b.addEventListener('click', () => net.kick(Number(b.dataset.ban), true)));
   p.querySelector('#mpstart')?.addEventListener('click', () => net.start());
   p.querySelector('#mpleave')?.addEventListener('click', () => { net.leaveRoom(); render(); net.list(); });
   const log = p.querySelector('#chatlog'); if (log) log.scrollTop = log.scrollHeight;

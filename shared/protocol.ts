@@ -1,5 +1,5 @@
 /** Messages between the game pages and the multiplayer server (JSON over WebSocket). Shared by the client and the server. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const MAX_PLAYERS = 12;
 export const BIKE_IDS = ['scooter', 'vespa', 'chopper', 'street', 'dirt', 'sport', 'classic', 'super', 'cruiser', 'hyper'];
 export const MAP_IDS = ['downtown', 'neon', 'desert', 'oldtown', 'snow', 'town'];
@@ -21,12 +21,13 @@ export interface RiderState {
 }
 
 export type C2S =
-  | { t: 'create'; ver: number; name: string; bike: string; color: string; pub?: boolean }
-  | { t: 'join'; ver: number; code: string; name: string; bike: string; color: string }
+  | { t: 'create'; ver: number; name: string; bike: string; color: string; pub?: boolean; cid?: string }   // cid: a random id kept by the browser, so a ban holds when the player rejoins
+  | { t: 'join'; ver: number; code: string; name: string; bike: string; color: string; cid?: string }
   | { t: 'me'; name: string; bike: string; color: string }
   | { t: 'settings'; map: string; laps: number; pub?: boolean; police?: boolean; traffic?: number }
   | { t: 'list' }
   | { t: 'chat'; text: string }
+  | { t: 'kick'; id: number; ban?: boolean }   // host only: remove a player (ban: they cannot rejoin this room)
   | { t: 'start' }
   | ({ t: 's' } & RiderState)
   | { t: 'hit'; to: number; mag: number; shove: number; how: 'punch' | 'kick' | 'rear' }
@@ -47,4 +48,5 @@ export type S2C =
   | { t: 'fin'; id: number; time: number }
   | { t: 'results'; list: ResultRow[] }
   | { t: 'left'; id: number }
+  | { t: 'kicked'; ban: boolean }   // sent to the player the host removed
   | { t: 'err'; msg: string };

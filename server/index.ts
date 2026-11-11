@@ -8,8 +8,8 @@ const PORT = Number(process.env.PORT) || 8090;
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);   // empty = any origin (fine on a home network)
 const MAX_ROOMS = 40, MAX_PER_IP = 8;
 
-interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number; lastChat: number }
-interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null }
+interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number; lastChat: number; cid: string; ip: string }
+interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null; banned: Set<string> }
 const rooms = new Map<string, Room>();
 const rooms_ = () => rooms;
 const where = new WeakMap<WebSocket, { room: Room; me: Player }>();
@@ -19,6 +19,7 @@ let nextId = 1;
 const clean = (s: unknown) => String(s ?? '').replace(/[^\w \-.]/g, '').trim().slice(0, 14) || 'Rider';
 const cleanBike = (b: unknown) => (BIKE_IDS.includes(String(b)) ? String(b) : 'street');
 const cleanColor = (c: unknown) => (/^#[0-9a-f]{6}$/i.test(String(c)) ? String(c) : '');
+const cleanCid = (c: unknown) => (/^[\w-]{8,40}$/.test(String(c)) ? String(c) : '');
 const num = (v: unknown, lim = 5000) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim ? v : 0);
 const send = (ws: WebSocket, m: S2C) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); };
 const info = (p: Player): PlayerInfo => ({ id: p.id, name: p.name, bike: p.bike, color: p.color });
@@ -56,7 +57,8 @@ wss.on('connection', (ws, req) => {
   alive.set(ws, true); ws.on('pong', () => alive.set(ws, true));
   const origin = req.headers.origin;
   if (ALLOWED.length && origin && !ALLOWED.includes(origin)) { ws.close(1008, 'origin'); return; }
-  const ip = String(req.socket.remoteAddress);
+  // behind a host's proxy (Fly, Render) every connection comes from the proxy's address, so take the player's address from the proxy's header
+  const ip = String(req.headers['fly-client-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress);
   if ((perIp.get(ip) ?? 0) >= MAX_PER_IP) { ws.close(1013, 'too many connections'); return; }
   perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
   ws.on('close', () => { leave(ws); perIp.set(ip, Math.max(0, (perIp.get(ip) ?? 1) - 1)); });
@@ -75,14 +77,15 @@ wss.on('connection', (ws, req) => {
       let r: Room | undefined;
       if (m.t === 'create') {
         if (rooms.size >= MAX_ROOMS) { send(ws, { t: 'err', msg: 'The server is full. Try again later.' }); return; }
-        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2, police: true, traffic: 1 }, seed: 1, finTimer: null }; rooms.set(r.code, r);
+        r = { code: newCode(), host: 0, players: new Map(), status: 'lobby', pub: m.pub !== false, settings: { map: 'downtown', laps: 2, police: true, traffic: 1 }, seed: 1, finTimer: null, banned: new Set() }; rooms.set(r.code, r);
       } else {
         r = rooms.get(String(m.code).toUpperCase().trim());
         if (!r) { send(ws, { t: 'err', msg: 'No room with that code.' }); return; }
         if (r.status !== 'lobby') { send(ws, { t: 'err', msg: 'A race is in progress. Try again when it ends.' }); return; }
+        if (r.banned.has(cleanCid(m.cid) || 'ip:' + ip)) { send(ws, { t: 'err', msg: 'The host banned you from this room.' }); return; }
         if (r.players.size >= MAX_PLAYERS) { send(ws, { t: 'err', msg: 'The room is full.' }); return; }
       }
-      const me: Player = { id: nextId++, ws, name: clean(m.name), bike: cleanBike(m.bike), color: cleanColor(m.color), fin: null, msgs: 0, lastChat: 0 };
+      const me: Player = { id: nextId++, ws, name: clean(m.name), bike: cleanBike(m.bike), color: cleanColor(m.color), fin: null, msgs: 0, lastChat: 0, cid: cleanCid(m.cid), ip };
       r.players.set(me.id, me); if (!r.host) r.host = me.id; where.set(ws, { room: r, me }); snapshot(r); return;
     }
     if (m.t === 'list') {   // the open rooms: public, waiting in the lobby and not full
@@ -100,6 +103,11 @@ wss.on('connection', (ws, req) => {
       const now = Date.now(); if (now - me.lastChat < 700) return; me.lastChat = now;      // at most one message every 0.7 s
       const text = String(m.text ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 120); if (!text) return;
       broadcast(r, { t: 'chat', id: me.id, name: me.name, text });
+    }
+    else if (m.t === 'kick') {   // the host removes a player, in the lobby or during a race; they stay connected and can join other rooms
+      const to = r.players.get(m.id); if (r.host !== me.id || !to || to.id === me.id) return;
+      if (m.ban) r.banned.add(to.cid || 'ip:' + to.ip);
+      send(to.ws, { t: 'kicked', ban: !!m.ban }); leave(to.ws);
     }
     else if (m.t === 'start') {
       if (r.host !== me.id || r.status !== 'lobby') return;

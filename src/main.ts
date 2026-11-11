@@ -1031,6 +1031,7 @@ let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (game && (ui === 'play' || (game.mp && (ui === 'pause' || ui === 'wreck' || ui === 'result')))) { game.update(dt); game.hud(); } else if (ui === 'home') homeFrame(dt);
+  city?.update(game && ui !== 'home' ? game.t : now / 1000);   // traffic lights follow the game clock (the same one the cars use)
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

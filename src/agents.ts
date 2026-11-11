@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { K, P, R, HALF, clamp, rnd, collideWorld } from './city';
+import { K, P, R, HALF, clamp, rnd, collideWorld, signalAt } from './city';
 import { makeVehicle, randomTraffic } from './vehicles';
 
 export type Kind = 'car' | 'ped' | 'police';
@@ -73,6 +73,16 @@ export class Agent {
     return g;
   }
 
+  /** The fastest this car may go because of the traffic light at the junction ahead: it brakes to stop at the line on red (and on amber when it can still stop). */
+  private lightLimit(t: number): number {
+    const k = this.dir > 0 ? Math.ceil(this.pos / P) : Math.floor(this.pos / P); if (Math.abs(k) > K) return 99;
+    const d = (k * P - this.pos) * this.dir - (R / 2 + 5);     // distance to the stop line, just before the zebra crossing
+    if (d < -1.5 || d > 28) return 99;                          // already over the line (keep going and clear the junction), or still far away
+    const s = signalAt(this.axis, this.axis === 'x' ? k : this.line, this.axis === 'x' ? this.line : k, t);
+    if (s === 'g' || (s === 'a' && d < 7)) return 99;           // amber and too close to stop: go through
+    return Math.max(0, this.max * (d - 0.5) / 10);
+  }
+
   update(dt: number, all: Agent[], player: { x: number; z: number; speed: number }, t: number) {
     if (this.kind === 'ped') return this.updatePed(dt);
     if (this.stun > 0) { this.stun -= dt; this.speed = Math.max(0, this.speed - 20 * dt); }
@@ -87,7 +97,7 @@ export class Agent {
       return;
     }
     const gap = this.stun > 0 ? 0 : this.gapAhead(all);
-    const want = gap < 11 ? Math.max(0, this.max * (gap - 5.5) / 5.5) : this.max;
+    const want = Math.min(this.lightLimit(t), gap < 11 ? Math.max(0, this.max * (gap - 5.5) / 5.5) : this.max);
     this.speed += clamp(want - this.speed, -22 * dt, 6 * dt);
     this.advance(this.speed * dt);
     this.follow(dt, 9);

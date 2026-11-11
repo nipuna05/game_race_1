@@ -81,6 +81,10 @@ Render's free web service runs the same server from the `Dockerfile`:
 
 The free service sleeps after about 15 minutes with nobody connected. The first player then waits up to a minute (the Online tab says "Waking up the server..."), and rooms are lost when it sleeps.
 
+## Traffic lights
+
+Every intersection has traffic lights and zebra crossings. Each one runs an 18-second cycle (green, amber, red), and neighbouring intersections are out of step. Cars, buses and patrolling police stop at the line on red and queue behind each other; police that are chasing you ignore the lights. The lights are not a rule for you: nothing happens if you ride through a red one, but the cross traffic will be moving.
+
 ## Bikes and maps
 
 - **Upgrades:** in the Garage, every bike you own can be upgraded in its five stats (Speed, Pickup, Handling, Braking, Boost), three levels each, +4% a level, paid with coins. Dearer bikes cost more to upgrade (the Street: 300, 600, 900 a stat). Upgrades are kept per bike, apply to your bike in every game type and online, and computer riders do not get them.

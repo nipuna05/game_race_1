@@ -91,7 +91,16 @@ function windowTexture(base: string, lit: string, dark: string, glow: boolean): 
   return { map: tex(c), emissive: e ? tex(e) : undefined };
 }
 
-export interface City { group: THREE.Group }
+export interface City { group: THREE.Group; /** Shows the traffic lights as they are at time t (seconds). */ update(t: number): void }
+
+/** Traffic lights. Every intersection runs an 18-second cycle: the x-road gets green (6.5 s), amber (2 s), then red while the z-road has its turn.
+ *  Neighbouring intersections start at different points of the cycle, so the whole city does not stop at once. */
+export type Signal = 'g' | 'a' | 'r';
+export function signalAt(axis: 'x' | 'z', i: number, j: number, t: number): Signal {
+  const shift = ((((i * 5 + j * 11) % 3) + 3) % 3) * 6;
+  const ph = (((t + shift + (axis === 'z' ? 9 : 0)) % 18) + 18) % 18;
+  return ph < 6.5 ? 'g' : ph < 8.5 ? 'a' : 'r';
+}
 
 export function buildCity(scene: THREE.Scene, mp: MapDef): City {
   const group = new THREE.Group(); scene.add(group);
@@ -164,6 +173,53 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
     m.makeTranslation(x, 3.5, z); poles.setMatrixAt(n, m); m.makeTranslation(x, 7.2, z); lamps.setMatrixAt(n, m); n++;
   }
   group.add(poles, lamps);
+
+  // zebra crossings on every arm of every intersection (not on the arms that leave the city)
+  const zebraMat = new THREE.MeshBasicMaterial({ color: mp.night ? 0xb9c2dc : 0xeeeee6 });
+  const nZeb = (2 * K + 1) * (2 * K + 1) * 2 * 9;
+  const zebX = new THREE.InstancedMesh(new THREE.PlaneGeometry(3, 0.8), zebraMat, nZeb), zebZ = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.8, 3), zebraMat, nZeb);
+  let zx = 0, zz = 0; const zOff = R / 2 + 2.6;
+  for (let i = -K; i <= K; i++) for (let j = -K; j <= K; j++) for (const s of [-1, 1]) for (let q = -4; q <= 4; q++) {
+    const o = q * (R - 2.4) / 9, ax = i * P + s * zOff, az = j * P + s * zOff;
+    if (Math.abs(ax) < HALF - 1) { m.makeRotationX(-Math.PI / 2); m.setPosition(ax, 0.04, j * P + o); zebX.setMatrixAt(zx++, m); }
+    if (Math.abs(az) < HALF - 1) { m.makeRotationX(-Math.PI / 2); m.setPosition(i * P + o, 0.04, az); zebZ.setMatrixAt(zz++, m); }
+  }
+  zebX.count = zx; zebZ.count = zz; zebX.frustumCulled = false; zebZ.frustumCulled = false; group.add(zebX, zebZ);
+
+  // traffic lights: one head for each of the four approaches of every intersection, on the driver's own side just before the junction.
+  // The two for the z-roads hang on the street-light poles; the two for the x-roads get a pole of their own on the other two corners.
+  const nI = (2 * K + 1) * (2 * K + 1), ca = R / 2 + 1;
+  const sigPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.13, 0.17, 5.4, 6), poleMat, nI * 2);
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.75, 2.1, 0.5), new THREE.MeshLambertMaterial({ color: 0x14171c }), nI * 4);
+  const bulbs = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.5, 0.12), new THREE.MeshBasicMaterial({ color: 0xffffff }), nI * 12);
+  const sig: { axis: 'x' | 'z'; i: number; j: number }[] = [];   // one for each head; its three bulbs are red, amber, green from the top
+  const sq = new THREE.Quaternion(), yUp = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), sv = new THREE.Vector3();
+  let np = 0;
+  for (let i = -K; i <= K; i++) for (let j = -K; j <= K; j++) {
+    const cx2 = i * P, cz2 = j * P;
+    // road, where it stands, which way its lamps look (towards the driver coming up to the junction), and whether it needs its own pole
+    const spots: ['x' | 'z', number, number, number, boolean][] = [
+      ['x', cx2 - ca, cz2 + ca, -Math.PI / 2, true], ['x', cx2 + ca, cz2 - ca, Math.PI / 2, true],
+      ['z', cx2 - ca, cz2 - ca, Math.PI, false], ['z', cx2 + ca, cz2 + ca, 0, false],
+    ];
+    for (const [axis, x, z, ang, own] of spots) {
+      const hd = sig.length; sig.push({ axis, i, j });
+      if (own) { m.makeTranslation(x, 2.7, z); sigPoles.setMatrixAt(np++, m); }
+      sq.setFromAxisAngle(yUp, ang); const fx = Math.sin(ang), fz = Math.cos(ang);
+      m.compose(sv.set(x + fx * 0.3, 4.6, z + fz * 0.3), sq, one); heads.setMatrixAt(hd, m);
+      for (let b = 0; b < 3; b++) { m.compose(sv.set(x + fx * 0.58, 5.25 - b * 0.65, z + fz * 0.58), sq, one); bulbs.setMatrixAt(hd * 3 + b, m); }
+    }
+  }
+  for (const im of [sigPoles, heads, bulbs]) im.frustumCulled = false;
+  group.add(sigPoles, heads, bulbs);
+  const LIT = [0xff3b30, 0xffc21a, 0x2bff7a].map((c) => new THREE.Color(c)), DIM = [0x3a1513, 0x3a2f10, 0x103a1e].map((c) => new THREE.Color(c));
+  let lastKey = -1;
+  const update = (t: number) => {
+    const key = Math.floor(t * 4); if (key === lastKey) return; lastKey = key;   // the lights only change on half-second steps: no need to repaint every frame
+    sig.forEach((s, hd) => { const st = signalAt(s.axis, s.i, s.j, t), on = st === 'r' ? 0 : st === 'a' ? 1 : 2; for (let b = 0; b < 3; b++) bulbs.setColorAt(hd * 3 + b, b === on ? LIT[b] : DIM[b]); });
+    if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
+  };
+  update(0);
   // trees (or palms, or snowy trees) along the sidewalks: a few at every block corner
   if (mp.trees !== 'none') {
     const palm = mp.trees === 'palm', crownCol = mp.trees === 'snow' ? 0xf2f7fb : palm ? 0x4f8a3a : 0x2f7a3a, hgt = palm ? 6 : 3;
@@ -179,5 +235,5 @@ export function buildCity(scene: THREE.Scene, mp: MapDef): City {
     }
     trunks.count = q; crowns.count = q; group.add(trunks, crowns);
   }
-  return { group };
+  return { group, update };
 }

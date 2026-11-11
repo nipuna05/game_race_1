@@ -27,10 +27,12 @@
 
 - Garage upgrades: five stats per bike, three levels each, bought with coins
 
+- Traffic lights at every intersection (cars stop on red) and zebra crossings
+
 ## Next
 - Multiplayer on the internet (host the server, e.g. Fly.io; wss and an origin allow-list)
 - shared (synced) traffic if players ask for it
-- Traffic lights and pedestrian crossings
+- People crossing at the zebra crossings (they walk along the pavements for now)
 - Better bike and rider models (real GLB assets, with licence recorded)
 - More maps (rain, suburbs, off-road shortcuts)
 - Ramps, jumps and shortcuts in races

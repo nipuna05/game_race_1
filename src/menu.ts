@@ -26,6 +26,9 @@ export const MODES: { id: string; name: string; short: string; desc: string; lap
   { id: 'coins', name: 'Coin Rush', short: 'Grab the gold', desc: '100 seconds to collect as many gold coins as you can across the city.' },
   { id: 'free', name: 'Free ride', short: 'Just explore', desc: 'Ride wherever you like. No rules, no clock.' },
 ];
+/** The game types a room can play online: id, name, what it is. */
+const MP_TYPES: [string, string, string][] = [['race', 'Race', 'First over the line after the laps wins'], ['brawl', 'Brawl', '90 seconds: the most knock-offs wins'], ['knockout', 'Knockout', 'Every 25 seconds the last rider is out']];
+const mpType = (id: string) => MP_TYPES.find((x) => x[0] === id) ?? MP_TYPES[0];
 export const mapDef = (): MapDef => MAPS.find((x) => x.id === opt.map) ?? MAPS[0];
 if (!owns(opt.bike)) opt.bike = 'street';
 export const bikeDef = (): BikeDef => BIKES.find((x) => x.id === opt.bike) ?? BIKES[0];
@@ -137,13 +140,14 @@ function render() {
         <div class="desc">${L.pub ? 'Public room' : 'Private room: share the code'} &middot; ${L.players.length} / 12 players${L.status === 'racing' ? ' &middot; race in progress' : ''}</div>
         <div class="plist">${L.players.map((p) => `<div class="pl ${p.id === L.you ? 'me' : ''}"><span>${p.name}${p.id === L.host ? '<i>HOST</i>' : ''}${p.id === L.you ? '<i>YOU</i>' : ''}</span><small>${BIKES.find((b) => b.id === p.bike)?.name ?? ''}${host && p.id !== L.you ? `<button class="kb" data-kick="${p.id}" title="Remove this player from the room">Kick</button><button class="kb ban" data-ban="${p.id}" title="Remove this player and stop them rejoining">Ban</button>` : ''}</small></div>`).join('')}</div>
         ${host ? `<h3>Race settings</h3>
+          <div class="row"><span>Game type</span><div class="seg" id="mpmode">${MP_TYPES.map(([v, nm, d]) => `<button data-v="${v}" title="${d}" class="${st.mode === v ? 'on' : ''}">${nm}</button>`).join('')}</div></div>
           <div class="row"><span>Map</span><div class="seg" id="mpmap">${MAPS.map((x) => `<button data-v="${x.id}" class="${st.map === x.id ? 'on' : ''}">${x.name}</button>`).join('')}</div></div>
-          <div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+          ${st.mode === 'race' ? `<div class="row"><span>Laps</span><div class="seg" id="mplaps">${[1, 2, 3].map((n) => `<button data-v="${n}" class="${st.laps === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : `<div class="row"><span>Rules</span><small style="color:#8fb0d0;font-weight:600">${mpType(st.mode)[2]}${L.players.length < 2 ? ' &middot; needs 2 players' : ''}</small></div>`}
           <div class="row"><span>Police</span><div class="seg" id="mppol"><button data-v="1" class="${st.police ? 'on' : ''}">On</button><button data-v="0" class="${st.police ? '' : 'on'}">Off</button></div></div>
           <div class="row"><span>Traffic and people</span><div class="seg" id="mptraf">${[['0', 'Empty'], ['1', 'Normal'], ['2', 'Busy']].map(([v, nm]) => `<button data-v="${v}" class="${st.traffic === Number(v) ? 'on' : ''}">${nm}</button>`).join('')}</div></div>
           <div class="row"><span>Room</span><div class="seg" id="mppub"><button data-v="1" class="${L.pub ? 'on' : ''}">Public</button><button data-v="0" class="${L.pub ? '' : 'on'}">Private</button></div></div>
-          <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START RACE</button>`
-        : `<h3>Race settings</h3><div class="desc">${MAPS.find((x) => x.id === st.map)?.name ?? st.map} &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''} &middot; Police ${st.police ? 'on' : 'off'} &middot; Traffic ${['empty', 'normal', 'busy'][st.traffic] ?? 'normal'}<br>Waiting for the host to start...</div>`}
+          <button class="go" id="mpstart" ${L.status === 'racing' ? 'disabled' : ''}>START ${mpType(st.mode)[1].toUpperCase()}</button>`
+        : `<h3>Race settings</h3><div class="desc"><b>${mpType(st.mode)[1]}</b>: ${mpType(st.mode)[2]}<br>${MAPS.find((x) => x.id === st.map)?.name ?? st.map}${st.mode === 'race' ? ` &middot; ${st.laps} lap${st.laps > 1 ? 's' : ''}` : ''} &middot; Police ${st.police ? 'on' : 'off'} &middot; Traffic ${['empty', 'normal', 'busy'][st.traffic] ?? 'normal'}<br>Waiting for the host to start...</div>`}
         <h3>Chat</h3><div class="chat" id="chatlog">${net.chatLog.map((c) => `<div><b>${clean(c.name)}</b> ${clean(c.text)}</div>`).join('')}</div>
         <input id="chatin" class="txt" maxlength="120" placeholder="Type a message and press Enter" spellcheck="false" style="margin-top:6px" />
         <button class="danger" id="mpleave">Leave room</button>${net.error ? `<div class="err">${net.error}</div>` : ''}`;
@@ -264,6 +268,7 @@ function bind(p: HTMLElement) {
   p.querySelector('#joinbtn')?.addEventListener('click', doJoin);
   p.querySelectorAll<HTMLInputElement>('.txt').forEach((i) => { i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { if (i.id === 'code') doJoin(); else if (i.id === 'chatin' && i.value.trim()) { net.chat(i.value); i.value = ''; } } }); });
   p.querySelector('#mpmap')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(b.dataset.v!, net.lobby.settings.laps); });
+  p.querySelector('#mpmode')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, net.lobby.settings.laps, undefined, undefined, undefined, b.dataset.v); });
   p.querySelector('#mplaps')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && net.lobby) net.settings(net.lobby.settings.map, Number(b.dataset.v)); });
   p.querySelectorAll<HTMLElement>('[data-kick]').forEach((b) => b.addEventListener('click', () => net.kick(Number(b.dataset.kick))));
   p.querySelectorAll<HTMLElement>('[data-ban]').forEach((b) => b.addEventListener('click', () => net.kick(Number(b.dataset.ban), true)));

@@ -14,7 +14,9 @@ export interface NetHandlers {
   hit?: (m: Extract<S2C, { t: 'hit' }>) => void;
   loot?: (m: Extract<S2C, { t: 'loot' }>) => void;
   fin?: (m: Extract<S2C, { t: 'fin' }>) => void;
-  results?: (list: ResultRow[]) => void;
+  results?: (list: ResultRow[], mode: string) => void;
+  ko?: (by: number, to: number) => void;                                         // a knock-off counted by the server
+  out?: (id: number) => void;                                                    // Knockout: this rider is out
   left?: (id: number) => void;
   closed?: () => void;
 }
@@ -73,12 +75,13 @@ export const net = {
   create(name: string, bike: string, color: string, pub = true) { this.send({ t: 'create', ver: PROTOCOL_VERSION, name, bike, color, pub, cid: clientId() }); },
   join(code: string, name: string, bike: string, color: string) { this.send({ t: 'join', ver: PROTOCOL_VERSION, code, name, bike, color, cid: clientId() }); },
   me(name: string, bike: string, color: string) { if (this.lobby) this.send({ t: 'me', name, bike, color }); },
-  settings(map: string, laps: number, pub?: boolean, police?: boolean, traffic?: number) { this.send({ t: 'settings', map, laps, pub, police, traffic }); },
+  settings(map: string, laps: number, pub?: boolean, police?: boolean, traffic?: number, mode?: string) { this.send({ t: 'settings', map, laps, pub, police, traffic, mode }); },
   kick(id: number, ban = false) { this.send({ t: 'kick', id, ban }); },
   start() { this.send({ t: 'start' }); },
   state(s: RiderState) { this.send({ t: 's', ...s }); },
   hit(to: number, mag: number, shove: number, how: 'punch' | 'kick' | 'rear') { this.send({ t: 'hit', to, mag, shove, how }); },
   loot(i: number) { this.send({ t: 'loot', i }); },
+  ko(by: number) { this.send({ t: 'ko', by }); },
   fin(time: number) { this.send({ t: 'fin', time }); },
   leaveRoom() { this.send({ t: 'leave' }); this.lobby = null; this.h.lobby?.(); },
 
@@ -93,7 +96,9 @@ export const net = {
       case 'hit': this.h.hit?.(m); break;
       case 'loot': this.h.loot?.(m); break;
       case 'fin': this.h.fin?.(m); break;
-      case 'results': this.h.results?.(m.list); break;
+      case 'results': this.h.results?.(m.list, m.mode); break;
+      case 'ko': this.h.ko?.(m.by, m.to); break;
+      case 'out': this.h.out?.(m.id); break;
       case 'left': this.h.left?.(m.id); break;
       case 'kicked': this.lobby = null; this.error = m.ban ? 'The host banned you from that room.' : 'The host removed you from that room.'; this.h.kicked?.(m.ban); this.h.lobby?.(); break;
     }

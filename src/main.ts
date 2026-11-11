@@ -9,6 +9,7 @@ import { net } from './net';
 import { makeVehicle } from './vehicles';
 import { preloadModels, onModels } from './models';
 import type { PlayerInfo, Settings, RiderState, ResultRow } from '../shared/protocol';
+import { BRAWL_SECONDS, KNOCKOUT_FIRST, KNOCKOUT_EVERY } from '../shared/protocol';
 import { opt, initMenu, showHome, showPause, setTab, syncMe, MODES, mapDef, bikeDef, previewDef, bikeColor, loadBest, saveBest, fmt } from './menu';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -154,7 +155,7 @@ class Game {
 
   constructor(mp: MpCfg | null = null) {
     this.mp = mp; this.rand = mp ? mulberry32(mp.seed) : Math.random;
-    if (mp) { this.mode = 'race'; this.laps = mp.settings.laps; this.police = mp.settings.police; this.traffic = mp.settings.traffic; }   // traffic and police run on each player's own screen
+    if (mp) { this.mode = (mp.settings.mode === 'brawl' || mp.settings.mode === 'knockout' ? mp.settings.mode : 'race') as Mode; this.laps = this.mode === 'race' ? mp.settings.laps : 999; this.modeT = BRAWL_SECONDS; this.elimT = KNOCKOUT_FIRST; this.police = mp.settings.police; this.traffic = mp.settings.traffic; }   // traffic and police run on each player's own screen
     this.D = DIFFS[mp ? 'normal' : opt.diff] ?? DIFFS.normal; this.lives = this.maxLives = this.D.lives; Agent.pol = this.D.police.spd;
     if (mp) this.rivalN = 0;
     else {                                                                      // what each game type needs
@@ -227,10 +228,30 @@ class Game {
     if (ui === 'home') return;
     const who = this.riders.find((r) => r.netId === m.from)?.name ?? 'Someone', res = this.player.bike.hit(m.mag, m.shove);
     if (res === 'ignored') { toast('Shield blocked it!', 600, '#8affb0'); return; }
-    if (res === 'fell') { sound.fall(); toast(`${who} knocked you off!`, 1400, '#ff8a8a'); this.playerFell(); } else { sound.punch(); toast(m.how === 'rear' ? 'Bumped!' : m.how === 'kick' ? 'Kick!' : 'Punch!', 500, '#ffd24a'); }
+    if (res === 'fell') { sound.fall(); toast(`${who} knocked you off!`, 1400, '#ff8a8a'); net.ko(m.from); this.playerFell(); } else { sound.punch(); toast(m.how === 'rear' ? 'Bumped!' : m.how === 'kick' ? 'Kick!' : 'Punch!', 500, '#ffd24a'); }
   }
   remoteLoot(i: number) { const l = this.loots[i]; if (l && l.cd <= 0) { l.cd = 14; l.mesh.visible = false; } }
-  removeRider(id: number) { const r = this.riders.find((x) => x.netId === id); if (!r) return; scene.remove(r.bike.mesh.root); this.riders = this.riders.filter((x) => x !== r); toast(`${r.name} left the race`, 1500, '#ffb36b'); }
+  /** Online: the server counted a knock-off. */
+  remoteKo(by: number) { const r = this.riders.find((x) => x.netId === by); if (r) r.ko = (r.ko ?? 0) + 1; }
+  /** Online Knockout: the server put a rider out. */
+  remoteOut(id: number) {
+    const r = this.riders.find((x) => x.netId === id); if (!r || this.mode !== 'knockout') return; this.elimT = KNOCKOUT_EVERY;
+    if (!r.isPlayer) { this.eliminated.add(r); r.bike.mesh.root.visible = false; this.modeScore++; toast(`${r.name} is out!`, 1800, '#ff8a8a'); sound.thump(8); return; }
+    this.modeDone = true; this.phase = 'done'; $('wreck').classList.remove('on');
+    const note = this.mpReward(false);
+    this.showResult('ELIMINATED', [['Riders beaten', String(this.modeScore)], ['Riders at the start', String(this.riders.length)]], `${note}<br><span style="color:#8fb0d0;font-size:14px">Waiting for the other riders...</span>`);
+    ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'LEAVE ROOM';
+  }
+  /** Online Brawl and Knockout: coins and XP, given once. */
+  mpReward(win: boolean): string {
+    if (this.resultDone) return this.rewardNote; this.resultDone = true;
+    const ko = this.player.ko ?? 0, n = this.modeScore;
+    const coins = this.mode === 'brawl' ? ko * 20 + (win ? 250 : 0) : win ? 450 : n * 60, xp = this.mode === 'brawl' ? ko * 10 + (win ? 100 : 0) : win ? 200 : n * 25;
+    const g = grant(coins, xp); bump('finish', 1); if (win) bump('win', 1);
+    return (this.rewardNote = `+${coins} coins  +${xp} XP${g.levelUp ? '  LEVEL UP!' : ''}`);
+  }
+  rewardNote = '';
+  removeRider(id: number) { const r = this.riders.find((x) => x.netId === id); if (!r) return; this.eliminated.delete(r); scene.remove(r.bike.mesh.root); this.riders = this.riders.filter((x) => x !== r); toast(`${r.name} left the race`, 1500, '#ffb36b'); }
 
   addAgent(kind: 'car' | 'ped' | 'police') {
     const a = new Agent(kind); a.placeOnRoad(this.player.bike, 50); this.agents.push(a); scene.add(a.mesh);
@@ -257,7 +278,7 @@ class Game {
       });
       // keep traffic off the starting grid
       for (const a of this.agents) if (Math.hypot(a.x - node(0).x + 26, a.z - node(0).z) < 40) a.placeOnRoad(this.player.bike, 120);
-      if (this.mode === 'brawl') { const pb = this.player.bike; pb.x = 0; pb.z = 0; pb.h = Math.PI / 2; pb.syncMesh(0); }   // the brawl is fought all over the city
+      if (this.mode === 'brawl' && !this.mp) { const pb = this.player.bike; pb.x = 0; pb.z = 0; pb.h = Math.PI / 2; pb.syncMesh(0); }   // the brawl is fought all over the city
     } else {
       this.phase = this.mode === 'free' ? 'go' : 'count'; this.countT = 3.2; this.lastBeep = 4;
       const b = this.player.bike; b.x = 0; b.z = 0; b.h = Math.PI / 2; b.speed = 0; b.syncMesh(0);
@@ -363,7 +384,7 @@ class Game {
       this.sendAcc += dt;
       if (this.sendAcc >= 0.066) {
         this.sendAcc = 0; const q = (v: number) => Math.round(v * 100) / 100;
-        net.state({ x: q(me.x), z: q(me.z), h: q(me.h), v: q(me.speed), l: q(me.lat), st: q(me.steerAngle), ln: q(me.leanAngle), f: me.fall > 0 ? 1 : 0, fd: me.fallDir, pw: (me.turbo > 0 ? 1 : 0) | (me.shield > 0 ? 2 : 0) | (me.power > 0 ? 4 : 0), p: this.player.passed, sw: me.swingT > 0 ? (me.swingKind === 'punch' ? (me.swingSide === 1 ? 1 : 2) : (me.swingSide === 1 ? 3 : 4)) : 0 });
+        net.state({ x: q(me.x), z: q(me.z), h: q(me.h), v: q(me.speed), l: q(me.lat), st: q(me.steerAngle), ln: q(me.leanAngle), f: me.fall > 0 ? 1 : 0, fd: me.fallDir, pw: (me.turbo > 0 ? 1 : 0) | (me.shield > 0 ? 2 : 0) | (me.power > 0 ? 4 : 0), p: this.player.passed, pr: Math.round(this.progress(this.player)), sw: me.swingT > 0 ? (me.swingKind === 'punch' ? (me.swingSide === 1 ? 1 : 2) : (me.swingSide === 1 ? 3 : 4)) : 0 });
       }
     }
 
@@ -766,9 +787,9 @@ class Game {
     switch (this.mode) {
       case 'rush': this.modeT -= dt; if (this.modeT <= 0) this.endMode(this.modeScore >= 6, 'TIME UP'); break;
       case 'coins': this.modeT -= dt; if (this.modeT <= 0) this.endMode(true, 'TIME UP'); break;
-      case 'brawl': this.modeT -= dt; if (this.modeT <= 0) this.endMode(true, 'TIME UP'); break;
+      case 'brawl': this.modeT -= dt; if (this.modeT <= 0) { if (this.mp) this.modeT = 0; else this.endMode(true, 'TIME UP'); } break;   // online, the server ends it
       case 'escape': this.modeT -= dt; if (this.heat < 2) this.heat = 2; if (this.modeT <= 0) this.endMode(true, 'ESCAPED!'); break;
-      case 'knockout': this.elimT -= dt; if (this.elimT <= 0) this.eliminate(); break;
+      case 'knockout': this.elimT -= dt; if (this.elimT <= 0) { if (this.mp) this.elimT = 0; else this.eliminate(); } break;   // online, the server says who is out
     }
   }
   /** Knockout: the rider furthest behind is out. */
@@ -936,6 +957,8 @@ net.h.hit = (m) => game?.receiveHit(m);
 net.h.loot = (m) => game?.remoteLoot(m.i);
 net.h.fin = (m) => { const r = game?.riders.find((x) => x.netId === m.id); if (r) { r.finishedAt = m.time; if (!r.isPlayer) toast(`${r.name} finished`, 1500, '#ffd24a'); } };
 net.h.left = (id) => game?.removeRider(id);
+net.h.ko = (by) => game?.remoteKo(by);
+net.h.out = (id) => game?.remoteOut(id);
 net.h.kicked = (ban) => { if (game?.mp) { $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); setTab('online', true); } toast(ban ? 'The host banned you from the room' : 'The host removed you from the room', 2800, '#ff8a8a'); };
 // chat during an online race: T or Enter opens a one-line box; messages show at the left for a few seconds
 const rchatIn = $('rchatin') as HTMLInputElement;
@@ -953,10 +976,16 @@ net.h.raceChat = (c) => {
   window.setTimeout(() => d.remove(), 9000);
 };
 net.h.closed = () => { if (game?.mp) { toast('Disconnected from the server', 2500, '#ff8a8a'); $('results').classList.remove('on'); $('wreck').classList.remove('on'); game.dispose(); game = null; enterHome(); } };
-net.h.results = (list: ResultRow[]) => {
+net.h.results = (list: ResultRow[], mode: string) => {
   if (!game?.mp) return; const me = game.player.netId;
-  $('res-title').textContent = 'RESULTS'; $('res-big').style.display = 'none'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
-  $('res-list').innerHTML = list.map((r, i) => `<div class="rr ${r.id === me ? 'me' : ''}"><span>${i + 1}</span><b>${r.name.replace(/[<>&]/g, '')}</b><em>${r.time ? fmt(r.time) : 'DNF'}</em></div>`).join('');
+  let note = '';
+  if (mode !== 'race') {                                       // Brawl and Knockout end here, for everyone at once
+    const top = list[0], win = top?.id === me && (mode === 'knockout' || ((top.score ?? 0) > 0 && (top.score ?? 0) > (list[1]?.score ?? 0)));   // a tied or empty brawl has no winner
+    note = game.mpReward(win); game.modeDone = true; game.phase = 'done'; $('wreck').classList.remove('on'); closeRaceChat(); ui = 'result'; sound.engine(false);
+  }
+  const cell = (r: ResultRow, i: number) => mode === 'brawl' ? `${r.score ?? 0} knock-offs` : mode === 'knockout' ? (i === 0 ? 'LAST RIDER STANDING' : r.score ? `outlasted ${r.score}` : 'first out') : r.time ? fmt(r.time) : 'DNF';
+  $('res-title').textContent = mode === 'brawl' ? 'BRAWL RESULTS' : mode === 'knockout' ? 'KNOCKOUT RESULTS' : 'RESULTS'; $('res-big').style.display = 'none'; ($('res-again') as HTMLElement).style.display = 'none'; $('res-back').textContent = 'BACK TO LOBBY';
+  $('res-list').innerHTML = list.map((r, i) => `<div class="rr ${r.id === me ? 'me' : ''}"><span>${i + 1}</span><b>${r.name.replace(/[<>&]/g, '')}</b><em>${cell(r, i)}</em></div>`).join('') + (note ? `<div style="margin:10px 0 0;text-align:center;color:#ffd24a;font-size:16px;font-weight:700">${note}</div>` : '');
   $('results').classList.add('on'); sound.fanfare();
 };
 $('res-back').addEventListener('click', () => { const was = game?.mp; if (was && net.lobby?.status === 'racing') net.leaveRoom(); $('results').classList.remove('on'); game?.dispose(); game = null; enterHome(); setTab(was ? 'online' : 'play', true); });

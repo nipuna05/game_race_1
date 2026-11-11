@@ -6,7 +6,7 @@ import { PROTOCOL_VERSION, MAX_PLAYERS, BIKE_IDS, MAP_IDS, MP_MODES, BRAWL_SECON
 
 const PORT = Number(process.env.PORT) || 8090;
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);   // empty = any origin (fine on a home network)
-const MAX_ROOMS = 40, MAX_PER_IP = 8;
+const MAX_ROOMS = 40, MAX_PER_IP = 16;   // per address: a full room of 12 from one office or home network, plus a few spare
 
 interface Player { id: number; ws: WebSocket; name: string; bike: string; color: string; fin: number | null; msgs: number; lastChat: number; cid: string; ip: string; ko: number; out: boolean; prog: number; lastKo: number }
 interface Room { code: string; host: number; players: Map<number, Player>; status: 'lobby' | 'racing'; pub: boolean; settings: Settings; seed: number; finTimer: NodeJS.Timeout | null; banned: Set<string>; outOrder: number[] }
@@ -74,7 +74,7 @@ wss.on('connection', (ws, req) => {
   if (ALLOWED.length && origin && !ALLOWED.includes(origin)) { ws.close(1008, 'origin'); return; }
   // behind a host's proxy (Fly, Render) every connection comes from the proxy's address, so take the player's address from the proxy's header
   const ip = String(req.headers['fly-client-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress);
-  if ((perIp.get(ip) ?? 0) >= MAX_PER_IP) { ws.close(1013, 'too many connections'); return; }
+  if ((perIp.get(ip) ?? 0) >= MAX_PER_IP) { send(ws, { t: 'err', msg: 'Too many connections from your network. Close other game tabs and try again in a minute.' }); ws.close(1013, 'too many connections'); return; }
   perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
   ws.on('close', () => { leave(ws); perIp.set(ip, Math.max(0, (perIp.get(ip) ?? 1) - 1)); });
   ws.on('error', () => { /* ignore */ });

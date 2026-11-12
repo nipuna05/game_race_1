@@ -69,8 +69,9 @@ const readInput = (): Input => ui !== 'play' ? { throttle: 0, steer: 0, hand: fa
 });
 
 // ---------- the game ----------
-const toast = (msg: string, ms = 1600, color = '#fff') => {
-  const el = $('toast'); el.textContent = msg; el.style.color = color; el.classList.add('on');
+/** A message on the screen. `small` shows it as a small line low on the screen, out of the way of the road and the direction signs. */
+const toast = (msg: string, ms = 1600, color = '#fff', small = false) => {
+  const el = $('toast'); el.textContent = msg; el.style.color = color; el.classList.toggle('small', small); el.classList.add('on');
   window.clearTimeout((toast as any).t); (toast as any).t = window.setTimeout(() => el.classList.remove('on'), ms);
 };
 
@@ -78,6 +79,8 @@ const toast = (msg: string, ms = 1600, color = '#fff') => {
 type Weapon = 'oil' | 'smoke' | 'bomb' | 'emp' | 'hook' | 'rocket' | 'warp';
 const WEAPONS: Weapon[] = ['oil', 'smoke', 'bomb', 'emp', 'hook', 'rocket', 'warp'];
 const isWeapon = (t: LootType): t is Weapon => (WEAPONS as string[]).includes(t);
+/** A small message low on the screen: what you picked up, and what the powers did. */
+const note = (msg: string, ms = 1600, color = '#fff') => toast(msg, ms, color, true);
 type LootType = 'nitro' | 'turbo' | 'shield' | 'power' | 'stick' | 'chain' | Weapon;
 const LOOT: Record<LootType, { name: string; letter: string; color: string; hex: number; text: string }> = {
   nitro: { name: 'NITRO', letter: 'N', color: '#3aa8ff', hex: 0x3aa8ff, text: 'Boost refilled and a burst of speed' },
@@ -293,7 +296,7 @@ class Game {
     else if (w === 'bomb' || w === 'emp') { const x = b.x + f.x * ahead, z = b.z + f.z * ahead; this.addShot(w, r, x, z, null); if (this.mp) net.fx(w, x, z); if (me) sound.punch(); }
     else if (w === 'hook' || w === 'rocket') {
       const tg = this.riderAhead(r, w === 'hook' ? 60 : 110);
-      if (!tg) { if (me) toast('No rider in range ahead', 900, '#ffb36b'); return false; }
+      if (!tg) { if (me) note('No rider in range ahead', 900, '#ffb36b'); return false; }
       if (w === 'hook') this.hook(r, tg); else this.addShot('rocket', r, tg.bike.x, tg.bike.z, tg);
       if (this.mp) net.fx(w, b.x, b.z, tg.netId ?? 0); if (me) sound.punch();
     }
@@ -327,10 +330,10 @@ class Game {
       if (r === owner || r.remote || this.eliminated.has(r)) continue;
       const dx = r.bike.x - x, dz = r.bike.z - z; if (Math.hypot(dx, dz) > radius) continue;
       const res = r.bike.hit(2, (dx * -Math.cos(r.bike.h) + dz * Math.sin(r.bike.h)) >= 0 ? 1 : -1);
-      if (res === 'ignored') { if (r.isPlayer) toast('Shield blocked the blast!', 700, '#8affb0'); continue; }
+      if (res === 'ignored') { if (r.isPlayer) note('Shield blocked the blast!', 700, '#8affb0'); continue; }
       if (owner) owner.ko = (owner.ko ?? 0) + 1;
-      if (r.isPlayer) { sound.fall(); toast(`${owner ? owner.name + "'s" : 'A'} blast knocked you off!`, 1500, '#ff8a8a'); if (this.mp && owner?.netId) net.ko(owner.netId); if (this.playerFell()) return; }
-      else if (owner?.isPlayer) { this.st.ko++; bump('ko', 1); toast(`${r.name} is down!`, 1300, '#8affb0'); }
+      if (r.isPlayer) { sound.fall(); note(`${owner ? owner.name + "'s" : 'A'} blast knocked you off!`, 1500, '#ff8a8a'); if (this.mp && owner?.netId) net.ko(owner.netId); if (this.playerFell()) return; }
+      else if (owner?.isPlayer) { this.st.ko++; bump('ko', 1); note(`${r.name} is down!`, 1300, '#8affb0'); }
     }
   }
   /** An EMP wave: the engines of the riders of this page that are close cut out for a few seconds. */
@@ -341,28 +344,28 @@ class Game {
       if (r === owner || this.eliminated.has(r) || Math.hypot(r.bike.x - x, r.bike.z - z) > 16) continue; n++;
       if (r.remote || r.bike.shield > 0) continue;
       r.bike.snag = 3.5; r.bike.speed *= 0.5; r.bike.turbo = 0; r.bike.boostLeft = 0;
-      if (r.isPlayer) toast('EMP! Your engine cut out', 1500, '#4cf0ff');
+      if (r.isPlayer) note('EMP! Your engine cut out', 1500, '#4cf0ff');
     }
-    if (owner?.isPlayer) toast(n ? `EMP hit ${n} rider${n > 1 ? 's' : ''}!` : 'EMP missed', 1200, '#4cf0ff');
+    if (owner?.isPlayer) note(n ? `EMP hit ${n} rider${n > 1 ? 's' : ''}!` : 'EMP missed', 1200, '#4cf0ff');
   }
   /** The hook: a rope to the rider ahead that drags them back and pulls the thrower forward. */
   hook(from: Rider, to: Rider) {
     const line = this.fxAdd(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), ROPE_MAT)); line.frustumCulled = false;
     this.ropes.push({ line, a: from, b: to, until: this.t + 0.8 });
     if (!to.remote) {
-      if (to.bike.shield > 0) { if (to.isPlayer || from.isPlayer) toast('Shield blocked the hook!', 700, '#8affb0'); return; }
+      if (to.bike.shield > 0) { if (to.isPlayer || from.isPlayer) note('Shield blocked the hook!', 700, '#8affb0'); return; }
       to.bike.speed *= 0.3; to.bike.snag = 2.4;
-      if (to.isPlayer) { sound.punch(); toast(`${from.name} hooked you!`, 1400, '#ff8a8a'); }
+      if (to.isPlayer) { sound.punch(); note(`${from.name} hooked you!`, 1400, '#ff8a8a'); }
     }
-    if (!from.remote) { from.bike.speed = Math.min(from.bike.speed + 10, 60); if (from.isPlayer) toast(`Hooked ${to.name}!`, 1200, '#8affb0'); }
+    if (!from.remote) { from.bike.speed = Math.min(from.bike.speed + 10, 60); if (from.isPlayer) note(`Hooked ${to.name}!`, 1200, '#8affb0'); }
   }
   /** Warp: jump ahead along the road towards the next checkpoint (never past it). */
   warp(r: Rider): boolean {
     const b = r.bike, n = this.nextNode(r), dx = n.x - b.x, dz = n.z - b.z, d = Math.hypot(dx, dz);
-    if (d < 20) { if (r.isPlayer) toast('Too close to the turn to warp', 900, '#ffb36b'); return false; }
+    if (d < 20) { if (r.isPlayer) note('Too close to the turn to warp', 900, '#ffb36b'); return false; }
     const jump = Math.min(48, d - 9); this.burst(b.x, b.z, 6, 0xb388ff, true);
     b.x += dx / d * jump; b.z += dz / d * jump; b.h = Math.atan2(dx, dz); b.lat = 0; collideWorld(b, 0.8); b.syncMesh(0); this.burst(b.x, b.z, 6, 0xb388ff, true);
-    if (r.isPlayer) { toast('WARP!', 800, '#b388ff'); this.camH = b.h; this.updateCamera(1, true); for (const a of this.agents) if (a.kind !== 'ped' && Math.hypot(a.x - b.x, a.z - b.z) < 9) a.placeOnRoad(b, 90); }
+    if (r.isPlayer) { note('WARP!', 800, '#b388ff'); this.camH = b.h; this.updateCamera(1, true); for (const a of this.agents) if (a.kind !== 'ped' && Math.hypot(a.x - b.x, a.z - b.z) < 9) a.placeOnRoad(b, 90); }
     return true;
   }
   /** Another player used a power (online). */
@@ -386,7 +389,7 @@ class Game {
         const d = Math.hypot(r.bike.x - p.x, r.bike.z - p.z);
         if (p.kind === 'oil') {
           if (d > 2.5 || r.bike.slip > 0 || r.bike.inv > 0 || r.bike.shield > 0 || (p.owner === r && t - p.born < 1.5)) continue;
-          r.bike.slip = 1.2; r.bike.slipDir = Math.random() < 0.5 ? 1 : -1; if (r.isPlayer) { sound.thump(6); toast('Oil! You are sliding', 1200, '#ffb36b'); }
+          r.bike.slip = 1.2; r.bike.slipDir = Math.random() < 0.5 ? 1 : -1; if (r.isPlayer) { sound.thump(6); note('Oil! You are sliding', 1200, '#ffb36b'); }
         } else if (d < 8.5) { if (r.isPlayer) inSmoke = true; else if (p.owner !== r) r.bike.snag = Math.max(r.bike.snag, 0.25); }   // computer riders cannot see either: they slow right down
       }
     }
@@ -861,7 +864,7 @@ class Game {
       if (Math.abs(l.x - b.x) < 2.6 && Math.abs(l.z - b.z) < 2.6) {
         const ty = l.type; if (isWeapon(ty)) { r.weapon = ty; r.gotAt = this.t; r.useAt = this.t + rnd(1.5, 4); } else b.grant(ty);
         l.cd = this.weapons ? 9 : 14; l.mesh.visible = false; if (r.isPlayer) { this.st.loot++; bump('crates', 1); if (this.mp) net.loot(li); }
-        if (r.isPlayer) { toast(`${LOOT[l.type].name}!  ${LOOT[l.type].text}`, 1800, LOOT[l.type].color); sound.loot(); }
+        if (r.isPlayer) { note(`${LOOT[l.type].name}: ${LOOT[l.type].text}`, 2600, LOOT[l.type].color); sound.loot(); }
       }
     }
     for (const p of this.pads) {

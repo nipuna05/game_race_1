@@ -97,7 +97,7 @@ A race where the crates hold powers instead of the usual power-ups. You hold one
 
 The crates can also hold a **stick** (25 seconds) or a **chain** (18 seconds). While you hold one, **Q / E** swing it instead of punching: it reaches further than a fist (the chain furthest) and one hit knocks a rider off. Sticks and chains are in the Brawl crates too.
 
-A shield blocks all of them. Computer riders pick up and use powers too. It is on the Play tab and in online rooms (the host picks **Power**); online, each player's own page decides what a power does to their bike. Power Race best times are kept apart from normal race times.
+A shield blocks all of them. What you pick up, and what a power did, is shown as a small line low on the screen so it does not cover the road or the direction sign. The Controls page in the menu lists every key and every power. Computer riders pick up and use powers too. It is on the Play tab and in online rooms (the host picks **Power**); online, each player's own page decides what a power does to their bike. Power Race best times are kept apart from normal race times.
 
 ## Traffic lights
 

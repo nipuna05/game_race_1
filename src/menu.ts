@@ -227,8 +227,15 @@ function render() {
       <span>${k('W', '&uarr;')}</span><span>Gas</span><span>${k('S', '&darr;')}</span><span>Brake and reverse</span><span>${k('A', 'D')} ${k('&larr;', '&rarr;')}</span><span>Steer</span>
       <span>${k('Space')}</span><span>Handbrake (drift)</span><span>${k('Shift')}</span><span>Boost (the bar refills when you let go)</span>
       <span>${k('Q')} ${k('E')}</span><span>Punch with the left / right hand</span><span>${k('F')}</span><span>Kick</span>
-      <span>${k('R')}</span><span>Put the bike back on the road</span><span>${k('Esc')}</span><span>Pause</span></div>
-      <h3 class="controls-tips">Tips</h3><div class="desc controls-tips">Hit riders beside you, or come up fast behind one, to knock them off. Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over orange arrow pads for speed. Hitting people or crashing makes the police chase you.</div>`;
+      <span>${k('G')}</span><span>Use the power you hold (Power Race)</span><span>${k('R')}</span><span>Put the bike back on the road</span>
+      <span>${k('M')}</span><span>Big map</span><span>${k('T')}</span><span>Chat (online)</span>
+      <span>${k('H')}</span><span>Show the tips</span><span>${k('Esc')}</span><span>Pause</span></div>
+      <h3>Powers from the crates (Power Race)</h3><div class="keys powers">
+      <span>${k('O')}</span><span><b>Oil</b> <i>G</i> drop it behind: riders slide</span><span>${k('S')}</span><span><b>Smoke bomb</b> <i>G</i> a cloud behind you</span>
+      <span>${k('B')}</span><span><b>Bomb</b> <i>G</i> throw ahead: knocks riders off</span><span>${k('E')}</span><span><b>EMP bomb</b> <i>G</i> throw ahead: engines cut out</span>
+      <span>${k('H')}</span><span><b>Hook</b> <i>G</i> drags back the rider ahead</span><span>${k('R')}</span><span><b>Rocket</b> <i>G</i> follows the rider ahead</span>
+      <span>${k('W')}</span><span><b>Warp</b> <i>G</i> jump ahead along the road</span><span>${k('I')} ${k('C')}</span><span><b>Stick / Chain</b> <i>Q E</i> swing it: one hit knocks off (also in Brawl)</span></div>
+      <h3 class="controls-tips">Tips</h3><div class="desc controls-tips">Hit riders beside you, or come up fast behind one, to knock them off. Grab the coloured crates (N nitro, S super speed, D shield, P power hits) and ride over orange arrow pads for speed. The letter on a crate tells you what is inside, and a shield blocks every power. Hitting people or crashing makes the police chase you.</div>`;
   } else {
     const v = sound.vol, sl = (k: 'master' | 'music' | 'sfx', n: string) => `<div class="slider"><span>${n}</span><input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-vol="${k}"><span id="v-${k}">${Math.round(v[k] * 100)}%</span></div>`;
     h = `<h2>Settings</h2>${sl('master', 'Master')}${sl('music', 'Music')}${sl('sfx', 'Effects')}<div class="slider"><span>Steering</span><input type="range" min="60" max="160" step="5" value="${Number(opt.steer) || 100}" data-steer><span id="v-steer">${Number(opt.steer) || 100}%</span></div><div class="desc">Steering: higher makes the bike turn sharper. Tip: let go of the gas a little before a corner, and use Space to drift round tight ones. Music changes between the menu and the race. Effects include the engine, which sounds different for each bike.</div>`;
